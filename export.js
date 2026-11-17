@@ -1,4 +1,4 @@
-import {chartGeometry,sortedEvents,escapeXml,layoutSpecs,pageCount} from './model.js';
+import {chartGeometry,sortedEvents,escapeXml,layoutSpecs,pageCount,playbackPosition,playbackTime} from './model.js';
 const INK='#1b2940', RED='#e65943', YELLOW='#ffda55', PAPER='#fffef9';
 // ===== SECTION: Shared chart and text rendering =====
 export function chartSvg(events,{width=1000,height=400,selectedId='',progress=1,interactive=false}={}) {
@@ -6,8 +6,7 @@ export function chartSvg(events,{width=1000,height=400,selectedId='',progress=1,
   const g=chartGeometry(events,box);
   const ticks=g.low<0?[10,5,0,-5,-10]:[10,8,6,4,2,0];
   const points=g.points;
-  const end=points.length?Math.max(0,Math.min(points.length-1,progress*(points.length-1))):0;
-  const complete=Math.floor(end);
+  const {position:end,index:complete}=playbackPosition(points.length,progress);
   const visible=points.slice(0,complete+1);
   if(complete<points.length-1){const a=points[complete],b=points[complete+1],f=end-complete;visible.push({x:a.x+(b.x-a.x)*f,y:a.y+(b.y-a.y)*f});}
   const line=visible.map(p=>`${p.x},${p.y}`).join(' ');
@@ -16,7 +15,7 @@ export function chartSvg(events,{width=1000,height=400,selectedId='',progress=1,
   const scoreY=n=>box.y+(10-n)/(10-g.low)*box.height;
   const ageTicks=Array.from({length:6},(_,i)=>Math.round(g.maxAge*i/5)).filter((a,i,ar)=>ar.indexOf(a)===i);
   const active=points.find(p=>p.id===selectedId);
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="人生の調子を年齢ごとに描いた折れ線グラフ" font-family="sans-serif"><defs><linearGradient id="chart-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${YELLOW}" stop-opacity=".6"/><stop offset="100%" stop-color="${YELLOW}" stop-opacity=".04"/></linearGradient></defs>${ticks.map(t=>`<line x1="${box.x}" x2="${box.x+box.width}" y1="${scoreY(t)}" y2="${scoreY(t)}" stroke="${t===0?'#bdc4c0':'#e5e7dc'}" stroke-dasharray="${t===0?'0':'4 5'}"/><text x="${box.x-18}" y="${scoreY(t)+5}" text-anchor="end" font-size="${interactive?22:14}" fill="#8a908b">${t}</text>`).join('')}${ageTicks.map(t=>`<text x="${box.x+t/g.maxAge*box.width}" y="${bottom+32}" font-size="${interactive?22:14}" text-anchor="middle" fill="#8a908b">${t}歳</text>`).join('')}${points.length?`<polygon points="${area}" fill="url(#chart-fill)"/><polyline points="${line}" fill="none" stroke="${RED}" stroke-width="5" stroke-linejoin="round" stroke-linecap="round"/>`: `<text x="${width/2}" y="${height/2}" text-anchor="middle" font-size="19" fill="#8a908b">あなたの最初の節目を、ここに。</text>`}${active?`<line x1="${active.x}" x2="${active.x}" y1="${box.y}" y2="${bottom}" stroke="${INK}" stroke-dasharray="4 5" opacity=".3"/>`:''}${points.map((p,i)=>`<g ${interactive?`data-point="${escapeXml(p.id)}"`:''}><circle cx="${p.x}" cy="${p.y}" r="${interactive?38:9}" fill="transparent" ${interactive?`class="chart-point" tabindex="0" role="button" aria-label="${escapeXml(`${p.age}歳 ${p.title||p.label||'できごと'} スコア${p.score}`)}"`:''}/><circle cx="${p.x}" cy="${p.y}" r="${p.id===selectedId?10:6}" fill="${p.id===selectedId?INK:PAPER}" stroke="${p.id===selectedId?INK:RED}" stroke-width="3" pointer-events="none" opacity="${i<=end?1:.18}"/>${points.length<=12&&i<=end?`<text x="${p.x}" y="${p.y-18}" text-anchor="middle" font-size="${interactive?21:14}" font-weight="bold" fill="${INK}" pointer-events="none">${p.score}</text>`:''}</g>`).join('')}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" role="${interactive?'group':'img'}" aria-label="人生の調子を年齢ごとに描いた折れ線グラフ${interactive?'。各節目の点を選ぶと、できごとを読めます。':''}" font-family="sans-serif"><defs><linearGradient id="chart-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${YELLOW}" stop-opacity=".6"/><stop offset="100%" stop-color="${YELLOW}" stop-opacity=".04"/></linearGradient></defs>${ticks.map(t=>`<line x1="${box.x}" x2="${box.x+box.width}" y1="${scoreY(t)}" y2="${scoreY(t)}" stroke="${t===0?'#bdc4c0':'#e5e7dc'}" stroke-dasharray="${t===0?'0':'4 5'}"/><text x="${box.x-18}" y="${scoreY(t)+5}" text-anchor="end" font-size="${interactive?22:14}" fill="#8a908b">${t}</text>`).join('')}${ageTicks.map(t=>`<text x="${box.x+t/g.maxAge*box.width}" y="${bottom+32}" font-size="${interactive?22:14}" text-anchor="middle" fill="#8a908b">${t}歳</text>`).join('')}${points.length?`<polygon points="${area}" fill="url(#chart-fill)"/><polyline points="${line}" fill="none" stroke="${RED}" stroke-width="5" stroke-linejoin="round" stroke-linecap="round"/>`: `<text x="${width/2}" y="${height/2}" text-anchor="middle" font-size="19" fill="#8a908b">あなたの最初の節目を、ここに。</text>`}${active?`<line x1="${active.x}" x2="${active.x}" y1="${box.y}" y2="${bottom}" stroke="${INK}" stroke-dasharray="4 5" opacity=".3"/>`:''}${points.map((p,i)=>`<g ${interactive?`data-point="${escapeXml(p.id)}"`:''}><circle cx="${p.x}" cy="${p.y}" r="${interactive?38:9}" fill="transparent" ${interactive?`class="chart-point" tabindex="0" role="button" aria-pressed="${p.id===selectedId}" aria-label="${escapeXml(`${p.age}歳 ${p.title||p.label||'できごと'} スコア${p.score}`)}"`:''}/><circle cx="${p.x}" cy="${p.y}" r="${p.id===selectedId?10:6}" fill="${p.id===selectedId?INK:PAPER}" stroke="${p.id===selectedId?INK:RED}" stroke-width="3" pointer-events="none" opacity="${i<=end?1:.18}"/>${points.length<=12&&i<=end?`<text x="${p.x}" y="${p.y-18}" text-anchor="middle" font-size="${interactive?21:14}" font-weight="bold" fill="${INK}" pointer-events="none">${p.score}</text>`:''}</g>`).join('')}</svg>`;
 }
 function wrap(text,max,limit=Infinity) {
   const lines=[];
@@ -88,11 +87,11 @@ export function drawVideoFrame(ctx,doc,progress) {
   const g=chartGeometry(doc.events,box);
   ctx.font='18px sans-serif';
   for(const n of (g.low<0?[10,5,0,-5,-10]:[10,8,6,4,2,0])) {const y=box.y+(10-n)/(10-g.low)*box.height;ctx.strokeStyle='#dde1d6';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(box.x,y);ctx.lineTo(box.x+box.width,y);ctx.stroke();ctx.fillStyle='#858d83';ctx.fillText(n,box.x-35,y+6);}
-  const end=Math.min(g.points.length-1,Math.max(0,progress*(g.points.length-1))),i=Math.floor(end),f=end-i;
+  const {index:i,fraction:f}=playbackPosition(g.points.length,progress);
   const visible=g.points.slice(0,i+1);if(g.points[i+1]){const a=g.points[i],b=g.points[i+1];visible.push({x:a.x+(b.x-a.x)*f,y:a.y+(b.y-a.y)*f});}
   if(visible.length){ctx.beginPath();visible.forEach((p,j)=>j?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));ctx.strokeStyle=RED;ctx.lineWidth=6;ctx.lineJoin='round';ctx.stroke();visible.slice(0,-1).forEach(p=>{ctx.beginPath();ctx.arc(p.x,p.y,7,0,Math.PI*2);ctx.fillStyle=RED;ctx.fill();});}
   for(let a=0;a<=5;a++){const age=Math.round(g.maxAge*a/5);canvasText(ctx,`${age}歳`,box.x+box.width*a/5-14,box.y+box.height+35,90,17,400,'#858d83');}
-  const current=g.points[Math.min(g.points.length-1,Math.floor(progress*g.points.length))];
+  const current=g.points[i];
   const cardY=chartTop+chartHeight+75;
   ctx.fillStyle='#fff3c5';ctx.fillRect(pad,cardY,w-pad*2,h-cardY-100);
   if(current){
@@ -114,7 +113,7 @@ export async function createVideo(doc,onProgress,signal) {
   let recorder;
   try {recorder=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:4000000});}catch(e){stream.getTracks().forEach(t=>t.stop());throw e;}
   let raf=0;
-  const duration=Math.max(8000,doc.events.length*1600+1200);
+  const {duration}=playbackTime(doc.events.length,0);
   return new Promise((resolve,reject)=>{
     let aborted=false;
     const abort=()=>{aborted=true;if(recorder.state!=='inactive')recorder.stop();};
@@ -124,7 +123,7 @@ export async function createVideo(doc,onProgress,signal) {
     recorder.onerror=()=>{cleanup();reject(new Error('動画の作成に失敗しました。画像保存をお試しください。'));};
     recorder.onstop=()=>{cleanup();if(aborted)reject(new DOMException('動画作成を中止しました。','AbortError'));else resolve(new Blob(chunks,{type:recorder.mimeType}));};
     recorder.start(250);const start=performance.now();
-    const frame=now=>{const elapsed=now-start,p=Math.min(1,elapsed/duration),reveal=Math.min(1,elapsed/(duration-1200));drawVideoFrame(ctx,doc,reveal);onProgress(p);if(p<1)raf=requestAnimationFrame(frame);else recorder.stop();};
+    const frame=now=>{const elapsed=now-start,{progress,complete}=playbackTime(doc.events.length,elapsed);drawVideoFrame(ctx,doc,progress);onProgress(Math.min(1,elapsed/duration));if(!complete)raf=requestAnimationFrame(frame);else recorder.stop();};
     raf=requestAnimationFrame(frame);
   });
 }

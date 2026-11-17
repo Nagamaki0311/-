@@ -49,7 +49,7 @@ export function parseDocument(text) {
 // ===== SECTION: Guides and chart coordinates =====
 export function guideEvents(mode, age, workStart = 22) {
   if (!Number.isInteger(age) || age<0 || age>120) throw new Error('現在の年齢を0〜120の整数で入力してください。');
-  if (!Number.isInteger(workStart) || workStart<0 || workStart>120) throw new Error('社会人の開始年齢を0〜120で入力してください。');
+  if (mode === 'school' && (!Number.isInteger(workStart) || workStart<0 || workStart>120)) throw new Error('社会人の開始年齢を0〜120で入力してください。');
   if(mode === 'age') return Array.from({length:age+1},(_,i)=>event(i, `${i}歳`));
   if(mode === 'turning') return [event(age, '転機')];
   if(mode !== 'school') throw new Error('ガイドを選択してください。');
@@ -80,3 +80,14 @@ export const layoutSpecs = {
   portrait: {width:1080,height:1920,perPage:10,label:'縦長'}
 };
 export function pageCount(doc) { return Math.max(1, Math.ceil(doc.events.length/layoutSpecs[doc.layout].perPage)); }
+
+// ===== SECTION: Playback position and final hold =====
+export function playbackPosition(count, progress) {
+  const position = Math.max(0, Math.min(1, progress)) * Math.max(0, count - 1);
+  const index = count ? Math.floor(position) : -1;
+  return { position, index, fraction: position - Math.floor(position) };
+}
+export function playbackTime(count, elapsed) {
+  const duration = Math.max(8000, count * 1600 + 1200);
+  return { duration, progress: Math.max(0, Math.min(1, elapsed / (duration - 1200))), complete: elapsed >= duration };
+}

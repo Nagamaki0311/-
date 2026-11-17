@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {emptyDocument,event,validateDocument,parseDocument,guideEvents,appendGuide,chartGeometry,sortedEvents,escapeXml,cleanText,pageCount} from '../model.js';
+import {emptyDocument,event,validateDocument,parseDocument,guideEvents,appendGuide,chartGeometry,sortedEvents,escapeXml,cleanText,pageCount,playbackPosition,playbackTime} from '../model.js';
 import {exportSvg,chartSvg,drawVideoFrame} from '../export.js';
 
 test('JSON backups round-trip Unicode and negative scores without mutation',()=>{
@@ -26,6 +26,8 @@ test('guide append preserves existing entries and skips only same age/label pair
   assert.equal(result.events.find(e=>e.label==='社会人2年目').age,23);
   assert.equal(appendGuide(result,guideEvents('school',23,22)).events.length,result.events.length);
   assert.throws(()=>appendGuide(emptyDocument(),guideEvents('age',120)));
+  assert.equal(guideEvents('turning',20,200).length,1,'hidden work-start field must not block other guides');
+  assert.throws(()=>guideEvents('school',20,200));
   assert.throws(()=>guideEvents('school',20.5));assert.throws(()=>guideEvents('other',20));
 });
 test('chart uses actual ages and stable ties; negative values expand y axis',()=>{
@@ -52,15 +54,44 @@ test('paged image output includes every event and comment without silent truncat
   assert.throws(()=>exportSvg(doc,-1));assert.throws(()=>exportSvg(doc,3));
   assert.ok(pages.every(p=>!p.includes('…')));
 });
-test('video text remains inside canvas and final card appears before completion',()=>{
+test('video text remains inside canvas when final card is reached',()=>{
   for(const layout of ['wide','square','portrait']){
     const sizes={wide:[1600,1000],square:[1200,1200],portrait:[1080,1920]},[width,height]=sizes[layout],texts=[];
     const ctx={canvas:{width,height},fillRect(){},strokeRect(){},beginPath(){},moveTo(){},lineTo(){},stroke(){},arc(){},fill(){},measureText(t){return {width:Array.from(t).length*22};},fillText(t,x,y){texts.push({t:String(t),x,y});}};
     const doc={...emptyDocument(),layout,events:[event(0,'','はじまり',0),event(50,'最後','最後のできごと'.repeat(5),10,'とても長いコメント'.repeat(30))]};
-    drawVideoFrame(ctx,doc,.9);
+    drawVideoFrame(ctx,doc,1);
     assert.ok(texts.some(t=>t.t.includes('最後')));
     assert.ok(texts.every(t=>t.y>=0&&t.y<height),`${layout}: all text baselines must stay in canvas`);
     const comments=texts.filter(t=>t.t.includes('コメント'));
     assert.ok(comments.every(t=>t.y<height-100),`${layout}: comments must remain above footer`);
   }
+});
+
+
+test('interactive chart exposes selectable points instead of hiding them inside an image role',()=>{
+  const first=event(0),last=event(20);
+  const interactive=chartSvg([first,last],{interactive:true,selectedId:first.id});
+  assert.match(interactive,/role="group"/);
+  assert.doesNotMatch(interactive,/role="img"/);
+  assert.equal((interactive.match(/role="button"/g)||[]).length,2);
+  assert.equal((interactive.match(/aria-pressed="true"/g)||[]).length,1);
+  assert.match(chartSvg([first]),/role="img"/);
+  assert.doesNotMatch(chartSvg([first]),/role="button"/);
+});
+
+test('playback shows the most recently reached event and holds the final state for 1.2 seconds',()=>{
+  const first=event(0,'first','FIRST'),last=event(20,'last','LAST');
+  const texts=[];
+  const ctx={canvas:{width:1600,height:1000},fillRect(){},strokeRect(){},beginPath(){},moveTo(){},lineTo(){},stroke(){},arc(){},fill(){},measureText(t){return {width:Array.from(t).length*22};},fillText(t){texts.push(String(t));}};
+  drawVideoFrame(ctx,{...emptyDocument(),events:[first,last]},.75);
+  assert.ok(texts.some(t=>t.includes('FIRST')));
+  assert.ok(!texts.some(t=>t.includes('LAST')),'last event must not appear while the line is still approaching it');
+  assert.equal(playbackPosition(6,.5).index,2);
+  assert.equal(playbackPosition(0,1).index,-1);
+  const {duration}=playbackTime(2,0);
+  assert.equal(playbackTime(2,duration-1201).progress<1,true);
+  assert.equal(playbackTime(2,duration-1200).progress,1);
+  assert.equal(playbackTime(2,duration-1).complete,false);
+  assert.equal(playbackTime(2,duration).complete,true);
+  assert.ok(playbackTime(100,0).duration>playbackTime(6,0).duration);
 });

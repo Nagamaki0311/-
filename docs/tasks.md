@@ -8,6 +8,8 @@
 | T-002 | 端末内で完結する年表編集・グラフ・保存 | 高 | 完了 | Developer |
 | T-003 | 動作検証・独立レビュー | 高 | 検証保留 | Reviewer / Manager |
 | T-004 | GitHubの変更ブランチ・PR作成 | 高 | 完了 | Manager |
+| T-005 | 時期・出来事・コメント・折れ線を単一盤面へ統合 | 高 | 完了 | Designer / Developer |
+| T-006 | 統合年表の描画検証・独立レビュー・再公開 | 高 | 完了 | Reviewer / Manager |
 
 ## バックログ
 

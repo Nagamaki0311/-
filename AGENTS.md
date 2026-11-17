@@ -52,3 +52,4 @@ User → Manager → Planner → Developer → Reviewer → Manager → Complete
 - docs/agents.md: Agent構成、モデル構成、オーケストレーション、Hook構成の詳細
 
 新規プロジェクトとしてコピーした直後は、docs/のうちtasks.md/progress.md/decisions.mdの3ファイルからproject001自身の構築履歴をリセットする。手順はREADME.mdを参照（複製しない）。
+

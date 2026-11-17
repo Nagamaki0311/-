@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {emptyDocument,event,validateDocument,parseDocument,guideEvents,appendGuide,chartGeometry,sortedEvents,escapeXml,cleanText,pageCount,playbackPosition,playbackTime} from '../model.js';
-import {exportSvg,chartSvg,drawVideoFrame} from '../export.js';
+import {emptyDocument,event,validateDocument,parseDocument,guideEvents,appendGuide,chartGeometry,sortedEvents,escapeXml,cleanText,timelineLayout,wrapText,rasterPlan,playbackPosition,playbackTime} from '../model.js';
+import {exportSvg,timelineSvg,traceGeometry,drawVideoFrame} from '../export.js';
 
 test('JSON backups round-trip Unicode and negative scores without mutation',()=>{
   const doc={...emptyDocument(),name:'はるか 🏔',negative:false,events:[event(25,'転機','ひと休み',-10,'気持ちを整えた。\n次の一歩へ。')]};
@@ -44,54 +44,108 @@ test('output escapes markup and XML-invalid live text; Japanese emoji remain int
   const doc={...emptyDocument(),title:'<script>alert("hi")</script>',events:[event(0,'<img>','<script>','5','x') ]};
   doc.events[0].score=5;
   const svg=exportSvg(doc);assert.ok(!svg.includes('<script>'));assert.ok(svg.includes('&lt;script&gt;'));
-  assert.ok(!chartSvg([]).includes('NaN'));assert.ok(!chartSvg([event(0)]).includes('NaN'));
+  assert.ok(!exportSvg(emptyDocument()).includes('NaN'));
+  assert.ok(!exportSvg({...emptyDocument(),events:[event(0)]}).includes('NaN'));
 });
-test('paged image output includes every event and comment without silent truncation',()=>{
-  const doc={...emptyDocument(),layout:'portrait',title:'長い人生のタイトル'.repeat(5),events:Array.from({length:23},(_,i)=>event(i,`時期${i}`,`できごと${i}`,i%11,`${i}番目のコメント${'あ'.repeat(280)}`))};
-  const pages=Array.from({length:pageCount(doc)},(_,i)=>exportSvg(doc,i));
-  assert.equal(pages.length,3);
-  for(const e of doc.events){assert.ok(pages.some(p=>p.includes(`できごと${e.age}`)));assert.ok(pages.some(p=>p.includes(`${e.age}番目のコメント`)));}
-  assert.throws(()=>exportSvg(doc,-1));assert.throws(()=>exportSvg(doc,3));
-  assert.ok(pages.every(p=>!p.includes('…')));
-});
-test('video text remains inside canvas when final card is reached',()=>{
+
+function intersects(a,b){return a.x<b.x+b.width&&a.x+a.width>b.x&&a.y<b.y+b.height&&a.y+a.height>b.y;}
+function segmentEntersRect(a,b,rect){
+  if(a.x===b.x)return a.x>rect.x&&a.x<rect.x+rect.width&&Math.max(a.y,b.y)>rect.y&&Math.min(a.y,b.y)<rect.y+rect.height;
+  if(a.y===b.y)return a.y>rect.y&&a.y<rect.y+rect.height&&Math.max(a.x,b.x)>rect.x&&Math.min(a.x,b.x)<rect.x+rect.width;
+  throw new Error('Connector must be orthogonal');
+}
+function assertBoardGeometry(doc){
+  const board=timelineLayout(doc);
+  assert.equal(board.bubbles.length,doc.events.length);assert.equal(board.points.length,doc.events.length);
+  for(const b of board.bubbles){
+    assert.ok(b.x>=0&&b.y>=0&&b.x+b.width<=board.width&&b.y+b.height<=board.height,'full bubble must be within board');
+    assert.deepEqual(b.connector[0],{x:b.point.x,y:b.point.y},'connector must start at exact age/score point');
+    for(const other of board.bubbles){
+      if(b===other)continue;
+      assert.ok(!intersects(b,other),'event bubbles must not overlap');
+      const obstacles=[other,{x:other.x+4,y:other.y+5,width:other.width,height:other.height},{x:other.x-9,y:other.y-31,width:44,height:44},{x:other.x+other.width-67,y:other.y-15,width:58,height:32}];
+      for(const obstacle of obstacles)for(let i=1;i<b.connector.length;i++)assert.ok(!segmentEntersRect(b.connector[i-1],b.connector[i],obstacle),'connector must not cross another event, including its number/score stamp');
+    }
+  }
+  return board;
+}
+
+test('one integrated export contains every event and full comment, with no pagination or truncation',()=>{
   for(const layout of ['wide','square','portrait']){
-    const sizes={wide:[1600,1000],square:[1200,1200],portrait:[1080,1920]},[width,height]=sizes[layout],texts=[];
-    const ctx={canvas:{width,height},fillRect(){},strokeRect(){},beginPath(){},moveTo(){},lineTo(){},stroke(){},arc(){},fill(){},measureText(t){return {width:Array.from(t).length*22};},fillText(t,x,y){texts.push({t:String(t),x,y});}};
-    const doc={...emptyDocument(),layout,events:[event(0,'','はじまり',0),event(50,'最後','最後のできごと'.repeat(5),10,'とても長いコメント'.repeat(30))]};
-    drawVideoFrame(ctx,doc,1);
-    assert.ok(texts.some(t=>t.t.includes('最後')));
-    assert.ok(texts.every(t=>t.y>=0&&t.y<height),`${layout}: all text baselines must stay in canvas`);
-    const comments=texts.filter(t=>t.t.includes('コメント'));
-    assert.ok(comments.every(t=>t.y<height-100),`${layout}: comments must remain above footer`);
+    const doc={...emptyDocument(),layout,title:'長い人生のタイトル'.repeat(5),events:Array.from({length:23},(_,i)=>event(i,`時期${i}`,`できごと${i}`,i%11,`${i}番目のコメント${'あ'.repeat(260)}`))};
+    const board=assertBoardGeometry(doc),svg=exportSvg(doc);
+    assert.equal((svg.match(/data-connector=/g)||[]).length,23);
+    assert.equal((svg.match(/data-kind="bubble"/g)||[]).length,23);
+    for(const b of board.bubbles){
+      assert.ok(svg.includes(`data-connector="${b.id}"`));
+      assert.equal(b.titleLines.join(''),b.title||'まだ名前のない、できごと');
+      assert.equal(b.commentLines.join(''),b.comment);
+    }
+    assert.ok(!svg.includes('…'));assert.ok(!svg.includes(' / 2</text>'));
+    assert.ok(svg.includes(`width="${board.width}" height="${board.height}"`));
   }
 });
 
-
-test('interactive chart exposes selectable points instead of hiding them inside an image role',()=>{
-  const first=event(0),last=event(20);
-  const interactive=chartSvg([first,last],{interactive:true,selectedId:first.id});
-  assert.match(interactive,/role="group"/);
-  assert.doesNotMatch(interactive,/role="img"/);
-  assert.equal((interactive.match(/role="button"/g)||[]).length,2);
-  assert.equal((interactive.match(/aria-pressed="true"/g)||[]).length,1);
-  assert.match(chartSvg([first]),/role="img"/);
-  assert.doesNotMatch(chartSvg([first]),/role="button"/);
+test('same-age events keep true chart coordinates and distinct collision-free annotation routes',()=>{
+  for(const layout of ['wide','square','portrait']){
+    const doc={...emptyDocument(),layout,events:Array.from({length:12},(_,i)=>event(10,`同じ年齢の節目${i}`,`大切なできごと${i}`,i%3-1,'W'.repeat(150)))};
+    const board=assertBoardGeometry(doc);
+    assert.equal(new Set(board.points.map(p=>p.x)).size,1);
+    assert.equal(new Set(board.bubbles.map(b=>JSON.stringify(b.connector))).size,12);
+    assert.deepEqual(timelineLayout(doc),board,'layout must be deterministic');
+  }
 });
 
-test('playback shows the most recently reached event and holds the final state for 1.2 seconds',()=>{
-  const first=event(0,'first','FIRST'),last=event(20,'last','LAST');
-  const texts=[];
-  const ctx={canvas:{width:1600,height:1000},fillRect(){},strokeRect(){},beginPath(){},moveTo(){},lineTo(){},stroke(){},arc(){},fill(){},measureText(t){return {width:Array.from(t).length*22};},fillText(t){texts.push(String(t));}};
-  drawVideoFrame(ctx,{...emptyDocument(),events:[first,last]},.75);
-  assert.ok(texts.some(t=>t.includes('FIRST')));
-  assert.ok(!texts.some(t=>t.includes('LAST')),'last event must not appear while the line is still approaching it');
-  assert.equal(playbackPosition(6,.5).index,2);
-  assert.equal(playbackPosition(0,1).index,-1);
+test('wide Latin glyphs and line breaks keep all content inside growing bubbles',()=>{
+  const doc={...emptyDocument(),events:[event(0,'M'.repeat(40),'W'.repeat(80),5,'W'.repeat(300)),event(1,'時期','改行の多い思い出',6,'あ\n'.repeat(140))]};
+  const board=assertBoardGeometry(doc);
+  for(const b of board.bubbles){
+    assert.ok(b.titleLines.every(line=>Array.from(line).length*22< b.width-30));
+    assert.ok(b.commentLines.every(line=>Array.from(line).length*18< b.width-30));
+    assert.equal(b.commentLines.join(''),b.comment.replaceAll('\n',''));
+  }
+  assert.equal(wrapText('\nW\n',10).join('\n'),'\nW\n');
+});
+
+test('interactive board exposes each bubble and exact point to keyboard users',()=>{
+  const first=event(0),last=event(20),doc={...emptyDocument(),events:[first,last]};
+  const interactive=timelineSvg(doc,{interactive:true,selectedId:first.id});
+  assert.match(interactive,/role="group"/);assert.doesNotMatch(interactive,/role="img"/);
+  assert.equal((interactive.match(/role="button"/g)||[]).length,4);
+  assert.equal((interactive.match(/aria-pressed="true"/g)||[]).length,2);
+  assert.match(exportSvg(doc),/role="img"/);assert.doesNotMatch(exportSvg(doc),/role="button"/);
+});
+
+test('PNG raster plan bounds both dimensions and memory while preserving complete vector viewBox',()=>{
+  for(const [width,height] of [[1600,1300],[2800,70000],[100000,300000]]){
+    const plan=rasterPlan(width,height);
+    assert.ok(plan.width<=8192&&plan.height<=8192&&plan.width*plan.height<=16000000);
+    assert.ok(plan.width>0&&plan.height>0);
+    assert.ok(Math.abs(plan.width/width-plan.height/height)<1/Math.min(width,height));
+  }
+  assert.equal(rasterPlan(1600,1300).scaled,false);
+  assert.equal(rasterPlan(2800,70000).scaled,true);
+});
+
+test('video reuses the complete board background and draws the same growing trace',()=>{
+  const doc={...emptyDocument(),events:[event(0,'誕生','FIRST',0),event(20,'転機','LAST',10)]};
+  const board=timelineLayout(doc),trace=traceGeometry(board,.75),lines=[],images=[],arcs=[];
+  const background={};
+  const ctx={canvas:{width:1600,height:1000},fillRect(){},drawImage(...args){images.push(args);},save(){},translate(){},scale(){},restore(){},beginPath(){},moveTo(x,y){lines.push([x,y]);},lineTo(x,y){lines.push([x,y]);},stroke(){},arc(...args){arcs.push(args);},fill(){}};
+  drawVideoFrame(ctx,board,background,.75);
+  assert.equal(images.length,1);assert.equal(images[0][0],background);
+  assert.equal(lines.at(-1)[0],trace.tip.x);assert.equal(lines.at(-1)[1],trace.tip.y);
+  assert.equal(arcs[0][0],trace.tip.x);assert.equal(arcs[0][1],trace.tip.y);
+  const staticSvg=timelineSvg(doc,{layout:board,showLine:false});
+  assert.ok(staticSvg.includes('FIRST')&&staticSvg.includes('LAST'),'all connected bubbles must stay in the cached video board');
+  assert.ok(staticSvg.includes('data-trace="" d=""'));
+});
+
+test('playback follows the age-spaced line and holds final state for 1.2 seconds',()=>{
+  assert.equal(playbackPosition(6,.5).index,2);assert.equal(playbackPosition(0,1).index,-1);
   const {duration}=playbackTime(2,0);
   assert.equal(playbackTime(2,duration-1201).progress<1,true);
   assert.equal(playbackTime(2,duration-1200).progress,1);
-  assert.equal(playbackTime(2,duration-1).complete,false);
-  assert.equal(playbackTime(2,duration).complete,true);
+  assert.equal(playbackTime(2,duration-1).complete,false);assert.equal(playbackTime(2,duration).complete,true);
   assert.ok(playbackTime(100,0).duration>playbackTime(6,0).duration);
 });

@@ -75,11 +75,83 @@ export function chartGeometry(events, box={x:70,y:45,width:910,height:280}) {
 }
 export function escapeXml(value) { return cleanText(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c])); }
 export const layoutSpecs = {
-  wide: {width:1600,height:1000,perPage:6,label:'横長'},
-  square: {width:1200,height:1200,perPage:6,label:'正方形'},
-  portrait: {width:1080,height:1920,perPage:10,label:'縦長'}
+  wide: {width:1600,height:1000,cardWidth:276,plotHeight:320,label:'横長'},
+  square: {width:1200,height:1200,cardWidth:260,plotHeight:400,label:'正方形'},
+  portrait: {width:1080,height:1600,cardWidth:248,plotHeight:480,label:'縦長'}
 };
-export function pageCount(doc) { return Math.max(1, Math.ceil(doc.events.length/layoutSpecs[doc.layout].perPage)); }
+
+// ===== SECTION: One connected board, with collision-free annotation lanes =====
+export function wrapText(text, maxUnits) {
+  const lines=[];
+  for(const paragraph of String(text).split('\n')) {
+    let line='',units=0;
+    for(const char of Array.from(paragraph)) {
+      const size=1.08;
+      if(line&&units+size>maxUnits){lines.push(line);line='';units=0;}
+      line+=char;units+=size;
+    }
+    lines.push(line);
+  }
+  return lines;
+}
+export function timelineLayout(doc) {
+  const spec=layoutSpecs[doc.layout],list=sortedEvents(doc.events);
+  const width=Math.max(spec.width,Math.min(2800,Math.ceil(Math.sqrt(Math.max(1,list.length)))*300));
+  const pad=66,plotX=pad+36,plotWidth=width-pad*2-60;
+  const titleLines=wrapText(doc.title||'わたしの人生年表',(width-pad*2)/42);
+  const nameLines=wrapText(doc.name?doc.name+'の人生年表':'あなただけの人生年表',(width-pad*2)/20);
+  const headerHeight=154+nameLines.length*29+titleLines.length*58;
+  const raw=chartGeometry(list,{x:plotX,y:0,width:plotWidth,height:spec.plotHeight});
+  const banks={top:[],bottom:[]},gap=50;
+  const bubbles=raw.points.map((point,index)=>{
+    const cardWidth=spec.cardWidth;
+    const x=Math.max(pad,Math.min(width-pad-cardWidth,point.x-cardWidth/2));
+    const periodLines=wrapText(`${point.age}歳${point.label?' / '+point.label:''}`,(cardWidth-48)/16);
+    const title=point.title||'まだ名前のない、できごと';
+    const titleText=wrapText(title,(cardWidth-40)/22);
+    const commentLines=point.comment?wrapText(point.comment,(cardWidth-40)/18):[];
+    const height=24+periodLines.length*24+18+titleText.length*31+(commentLines.length?14+commentLines.length*27:0)+22;
+    function freeLane(bank){let i=0;while(bank[i]?.items.some(b=>x<b.x+b.width+gap&&x+cardWidth+gap>b.x))i++;return i;}
+    const topIndex=freeLane(banks.top),bottomIndex=freeLane(banks.bottom);
+    const side=topIndex<bottomIndex?'top':bottomIndex<topIndex?'bottom':index%2?'bottom':'top';
+    const lane=side==='top'?topIndex:bottomIndex;
+    if(!banks[side][lane])banks[side][lane]={height:0,items:[]};
+    const bubble={...point,index,x,y:0,width:cardWidth,height,side,lane,periodLines,titleLines:titleText,commentLines};
+    banks[side][lane].items.push(bubble);banks[side][lane].height=Math.max(banks[side][lane].height,height);
+    return bubble;
+  });
+  const bankHeight=bank=>bank.reduce((sum,lane)=>sum+lane.height+gap,0);
+  const topHeight=bankHeight(banks.top),bottomHeight=bankHeight(banks.bottom);
+  const chartY=headerHeight+topHeight+48;
+  const chartBottom=chartY+spec.plotHeight;
+  for(const side of ['top','bottom']){
+    let offset=0;
+    for(const lane of banks[side]){
+      for(const bubble of lane.items)bubble.y=side==='top'?chartY-48-offset-bubble.height:chartBottom+82+offset;
+      offset+=lane.height+gap;
+    }
+  }
+  const points=raw.points.map(p=>({...p,y:p.y+chartY}));
+  const byId=new Map(points.map(p=>[p.id,p]));
+  bubbles.forEach(b=>{
+    b.point=byId.get(b.id);
+    const laneItems=banks[b.side][b.lane].items;
+    const routeY=b.side==='top'?Math.min(...laneItems.map(c=>c.y))-38:Math.max(...laneItems.map(c=>c.y+c.height))+12;
+    const gutterX=30+b.index%4*5;
+    const edgeY=b.side==='top'?chartY-12:chartBottom+43;
+    const targetY=b.side==='top'?b.y:b.y+b.height;
+    // Route through reserved lane gaps and outside all cards, never through a neighbour.
+    b.connector=b.lane===0
+      ? [{x:b.point.x,y:b.point.y},{x:b.point.x,y:edgeY},{x:b.x+b.width/2,y:edgeY},{x:b.x+b.width/2,y:b.side==='top'?b.y+b.height:b.y}]
+      : [{x:b.point.x,y:b.point.y},{x:b.point.x,y:edgeY},{x:gutterX,y:edgeY},{x:gutterX,y:routeY},{x:b.x+b.width/2,y:routeY},{x:b.x+b.width/2,y:targetY}];
+  });
+  const height=Math.max(spec.height,chartBottom+82+bottomHeight+88);
+  return {width,height,pad,headerHeight,titleLines,nameLines,bubbles,points,low:raw.low,maxAge:raw.maxAge,box:{x:plotX,y:chartY,width:plotWidth,height:spec.plotHeight},banks};
+}
+export function rasterPlan(width,height,{maxDimension=8192,maxPixels=16000000}={}) {
+  const scale=Math.min(1,maxDimension/width,maxDimension/height,Math.sqrt(maxPixels/(width*height)));
+  return {width:Math.max(1,Math.floor(width*scale)),height:Math.max(1,Math.floor(height*scale)),scale,scaled:scale<1};
+}
 
 // ===== SECTION: Playback position and final hold =====
 export function playbackPosition(count, progress) {

@@ -1,9 +1,10 @@
-import {MAX_EVENTS,STORAGE_KEY,emptyDocument,sampleDocument,event,sortedEvents,parseDocument,guideEvents,appendGuide,escapeXml,cleanText,layoutSpecs,pageCount,playbackPosition,playbackTime} from './model.js';
-import {chartSvg,exportSvg,svgToCanvas,canvasBlob,videoMime,createVideo} from './export.js';
+import {MAX_EVENTS,STORAGE_KEY,emptyDocument,sampleDocument,event,sortedEvents,parseDocument,guideEvents,appendGuide,escapeXml,cleanText,timelineLayout,rasterPlan,playbackPosition,playbackTime} from './model.js';
+import {timelineSvg,traceGeometry,exportSvg,svgToCanvas,canvasBlob,videoMime,createVideo} from './export.js';
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)], esc=escapeXml;
 let doc=emptyDocument(),sample=sampleDocument(),showingSample=true,selectedId=null,guide='turning',toastTimer,undo=null;
 let playRaf=0,playStart=0,playElapsed=0,playing=false,playProgress=1;
 let exportDoc=null,pngPromise=null,videoBlob=null,videoUrl=null,videoController=null;
+let previewLayout=null,previewKey='',highlightedId='',boardZoom=.85;
 // ===== SECTION: Persistence and user feedback =====
 function toast(message,action=null) {
   clearTimeout(toastTimer);const box=$('#toast');box.replaceChildren(document.createTextNode(message));
@@ -64,7 +65,7 @@ $('#add-event').onclick=()=>{
 };
 $('#event-list').addEventListener('click',e=>{
   const item=e.target.closest('.event-item');if(!item)return;
-  if(e.target.closest('.event-toggle')){const id=item.dataset.id;selectedId=selectedId===id?null:id;renderEditor();renderPreview();[...$('#event-list').children].find(el=>el.dataset.id===id)?.querySelector('.event-toggle')?.focus({preventScroll:true});return;}
+  if(e.target.closest('.event-toggle')){const id=item.dataset.id;selectedId=selectedId===id?null:id;renderEditor();renderPreview();if(selectedId)revealEvent(selectedId);[...$('#event-list').children].find(el=>el.dataset.id===id)?.querySelector('.event-toggle')?.focus({preventScroll:true});return;}
   if(e.target.closest('.delete-event')){
     const index=doc.events.findIndex(x=>x.id===item.dataset.id),removed=doc.events[index];doc.events.splice(index,1);undo={removed,index};selectedId=sortedEvents(doc.events).at(-1)?.id||null;persist();renderEditor();renderPreview();const next=[...$('#event-list').children].find(el=>el.dataset.id===selectedId)?.querySelector('.event-toggle')||$('#add-event');next.focus({preventScroll:true});
     toast('節目を削除しました。',{label:'元に戻す',run:()=>{
@@ -90,23 +91,60 @@ $('#event-list').addEventListener('change',e=>{if(e.target.dataset.field==='age'
 $('#negative').onchange=e=>{ensureOwn();doc.negative=e.target.checked;persist();renderEditor();renderPreview();};
 $$('[data-layout]').forEach(b=>b.onclick=()=>{if(showingSample)sample.layout=b.dataset.layout;else{doc.layout=b.dataset.layout;persist();}updateLayoutButtons();renderPreview();});
 // ===== SECTION: Preview and playback =====
-function renderPreview(){
-  const d=currentDoc(),list=sortedEvents(d.events);
-  $('#sample-badge').hidden=!showingSample;
-  $('#preview-name').textContent=d.name?`${d.name}の`:'あなただけの';
-  $('#preview-title').textContent=d.title||'わたしの人生年表';
-  let active=list.find(e=>e.id===selectedId)||list.at(-1);
-  if(playing||playProgress<1)active=list[playbackPosition(list.length,playProgress).index];
-  $('#chart').innerHTML=chartSvg(list,{selectedId:active?.id,progress:playProgress,interactive:true});
-  $('#spotlight').innerHTML=active?`<div class="spotlight-meta"><b>${active.age}歳</b><span>${esc(active.label||'人生のひとコマ')}</span><span>／ 人生の調子 ${active.score}</span></div><h3>${esc(active.title||'まだ名前のない、できごと')}</h3>${active.comment?`<p>${esc(active.comment)}</p>`:'<p>このときの気持ちを、ひとこと残してみよう。</p>'}`:'<div class="spotlight-meta"><b>YOUR STORY</b></div><h3>物語は、ここから。</h3><p>節目を追加すると、あなたの人生のグラフが描かれます。</p>';
-  $('#play').disabled=!list.length;
+function activePreviewId(list){
+  if(playing||playProgress<1)return list[playbackPosition(list.length,playProgress).index]?.id||'';
+  return list.find(e=>e.id===selectedId)?.id||list.at(-1)?.id||'';
 }
-function selectPoint(target){const point=target.closest('[data-point]');if(!point)return;const keepFocus=point.contains(document.activeElement);stopPlayback(true);selectedId=point.dataset.point;if(!showingSample)renderEditor();renderPreview();if(keepFocus)[...$('#chart').querySelectorAll('[data-point]')].find(el=>el.dataset.point===selectedId)?.querySelector('.chart-point')?.focus({preventScroll:true});}
+function updateBoardProgress(progress,activeId){
+  if(!previewLayout)return;
+  const root=$('#chart'),trace=traceGeometry(previewLayout,progress),path=root.querySelector('[data-trace]'),tip=root.querySelector('[data-trace-tip]');
+  path?.setAttribute('d',trace.path);
+  if(tip){tip.setAttribute('r',trace.tip?'8':'0');if(trace.tip){tip.setAttribute('cx',trace.tip.x);tip.setAttribute('cy',trace.tip.y);}}
+  if(highlightedId!==activeId){
+    root.querySelectorAll('[data-event-id]').forEach(el=>{
+      const active=el.dataset.eventId===activeId;el.classList.toggle('is-selected',active);el.setAttribute('aria-pressed',active);
+      const outline=el.querySelector('.bubble-outline');if(outline){outline.setAttribute('stroke',active?'#f26654':'#172f44');outline.setAttribute('stroke-width',active?'4':'2.5');}
+    });
+    highlightedId=activeId;
+  }
+}
+function applyZoom(preserveCenter=true){
+  if(!previewLayout)return;
+  const viewport=$('#board-viewport'),board=$('#chart'),oldWidth=board.getBoundingClientRect().width||previewLayout.width*boardZoom;
+  const ratio=previewLayout.width*boardZoom/oldWidth,cx=viewport.scrollLeft+viewport.clientWidth/2,cy=viewport.scrollTop+viewport.clientHeight/2;
+  board.style.width=`${previewLayout.width*boardZoom}px`;
+  $('#zoom-value').value=`${Math.round(boardZoom*100)}%`;
+  if(preserveCenter){viewport.scrollLeft=cx*ratio-viewport.clientWidth/2;viewport.scrollTop=cy*ratio-viewport.clientHeight/2;}
+}
+function renderPreview(){
+  const d=currentDoc(),key=JSON.stringify(d),list=sortedEvents(d.events),active=activePreviewId(list);
+  $('#sample-badge').hidden=!showingSample;
+  if(key!==previewKey){
+    previewLayout=timelineLayout(d);previewKey=key;
+    $('#chart').innerHTML=timelineSvg(d,{layout:previewLayout,selectedId:active,progress:playProgress,interactive:true});
+    highlightedId=active;applyZoom(false);
+  }
+  updateBoardProgress(playProgress,active);$('#play').disabled=!list.length;
+}
+function revealEvent(id){
+  const bubble=previewLayout?.bubbles.find(b=>b.id===id);if(!bubble)return;
+  const viewport=$('#board-viewport');viewport.scrollTo({left:Math.max(0,(bubble.x+bubble.width/2)*boardZoom-viewport.clientWidth/2),top:Math.max(0,bubble.y*boardZoom-30),behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
+}
+function selectPoint(target){
+  const point=target.closest('[data-event-id]');if(!point)return;
+  const keepFocus=point.contains(document.activeElement),kind=point.dataset.kind;
+  stopPlayback(true);selectedId=point.dataset.eventId;if(!showingSample)renderEditor();renderPreview();
+  if(keepFocus)[...$('#chart').querySelectorAll('[data-event-id]')].find(el=>el.dataset.eventId===selectedId&&el.dataset.kind===kind)?.focus({preventScroll:true});
+}
 $('#chart').addEventListener('click',e=>selectPoint(e.target));
 $('#chart').addEventListener('focusin',()=>{if(playing){stopPlayback();$('#play-label').textContent='ちょっと、ひと休み。';}});
 $('#chart').addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();selectPoint(e.target);}});
+$('#zoom-in').onclick=()=>{boardZoom=Math.min(1.8,boardZoom*1.25);applyZoom();};
+$('#zoom-out').onclick=()=>{boardZoom=Math.max(.08,boardZoom/1.25);applyZoom();};
+$('#zoom-readable').onclick=()=>{boardZoom=.85;applyZoom();};
+$('#zoom-fit').onclick=()=>{if(!previewLayout)return;const v=$('#board-viewport');boardZoom=Math.max(.001,Math.min(1,v.clientWidth/previewLayout.width,v.clientHeight/previewLayout.height));applyZoom();v.scrollTop=0;v.scrollLeft=0;};
 function stopPlayback(reset=false){cancelAnimationFrame(playRaf);playing=false;$('#play').textContent='▶';$('#play').setAttribute('aria-label','人生を再生');if(reset){playElapsed=0;playProgress=1;$('#play-label').textContent='人生を、再生してみる。';$('#play-hint').textContent='あの日から今まで、時系列で振り返ろう。';}}
-function frame(now){playElapsed=now-playStart;const state=playbackTime(currentDoc().events.length,playElapsed);playProgress=state.progress;renderPreview();if(!state.complete){playRaf=requestAnimationFrame(frame);}else{stopPlayback();playElapsed=0;$('#play-label').textContent='ここまで、よく歩いてきたね。';$('#play-hint').textContent='もう一度再生して、あなたの物語を振り返ろう。';}}
+function frame(now){playElapsed=now-playStart;const state=playbackTime(currentDoc().events.length,playElapsed);playProgress=state.progress;updateBoardProgress(playProgress,previewLayout?.points[playbackPosition(previewLayout.points.length,playProgress).index]?.id||'');if(!state.complete){playRaf=requestAnimationFrame(frame);}else{selectedId=previewLayout?.points.at(-1)?.id||null;stopPlayback();playElapsed=0;$('#play-label').textContent='ここまで、よく歩いてきたね。';$('#play-hint').textContent='もう一度再生して、あなたの物語を振り返ろう。';}}
 $('#play').onclick=()=>{
   if(playing){stopPlayback();$('#play-label').textContent='ちょっと、ひと休み。';return;}
   if(!currentDoc().events.length)return;
@@ -129,21 +167,17 @@ $$('dialog').forEach(d=>d.addEventListener('click',e=>{if(e.target===d){const r=
 $('#confirm-dialog').addEventListener('close',()=>pendingImport=null);
 // ===== SECTION: Image export and native file sharing =====
 function refreshExport(){
-  const page=Number($('#export-page').value),svg=exportSvg(exportDoc,page);$('#export-preview').innerHTML=svg;
-  pngPromise=svgToCanvas(svg).then(canvasBlob);
-  pngPromise.catch(()=>{});
+  const layout=timelineLayout(exportDoc),svg=exportSvg(exportDoc),plan=rasterPlan(layout.width,layout.height);
+  $('#export-preview').innerHTML=svg;
+  $('#raster-notice').textContent=plan.scaled?`PNGは安全なサイズ（${plan.width}×${plan.height}px）に縮小して一枚に保存します。文字を大きく読むには、拡大できるSVGがおすすめです。`:`${layout.width}×${layout.height}pxの一枚に、すべての思い出を保存します。SVGは拡大してもくっきり。`;
+  pngPromise=svgToCanvas(svg).then(canvasBlob);pngPromise.catch(()=>{});
 }
-$('#export-open').onclick=()=>{
-  exportDoc=structuredClone(currentDoc());const pages=pageCount(exportDoc);
-  $('#export-page').innerHTML=Array.from({length:pages},(_,i)=>`<option value="${i}">${i+1} / ${pages} ページ${showingSample?'（サンプル）':''}</option>`).join('');
-  refreshExport();$('#export-dialog').showModal();
-};
-$('#export-page').onchange=refreshExport;
-$('#png-save').onclick=async()=>{const b=$('#png-save');b.disabled=true;try{const blob=await pngPromise;download(blob,filename('png',Number($('#export-page').value)+1));toast('PNG画像を保存しました。');}catch(e){toast(e.message);}finally{b.disabled=false;}};
-$('#svg-save').onclick=()=>{download(new Blob([exportSvg(exportDoc,Number($('#export-page').value))],{type:'image/svg+xml'}),filename('svg',Number($('#export-page').value)+1));toast('SVG画像を保存しました。');};
+$('#export-open').onclick=()=>{exportDoc=structuredClone(currentDoc());refreshExport();$('#export-dialog').showModal();};
+$('#png-save').onclick=async()=>{const b=$('#png-save');b.disabled=true;try{const blob=await pngPromise;download(blob,filename('png'));toast('すべての節目を、一枚のPNG画像に保存しました。');}catch(e){toast(e.message);}finally{b.disabled=false;}};
+$('#svg-save').onclick=()=>{download(new Blob([exportSvg(exportDoc)],{type:'image/svg+xml'}),filename('svg'));toast('すべての節目を、一枚のSVG画像に保存しました。');};
 $('#share').onclick=async()=>{
   try{
-    const blob=await pngPromise,file=new File([blob],filename('png',Number($('#export-page').value)+1),{type:'image/png'});
+    const blob=await pngPromise,file=new File([blob],filename('png'),{type:'image/png'});
     if(navigator.canShare?.({files:[file]})&&navigator.share){await navigator.share({files:[file],title:exportDoc.title||'わたしの人生年表'});toast('共有画面に画像を渡しました。');}
     else{download(blob,file.name);toast('この端末は直接共有に非対応です。保存した画像をSNSに添付してください。');}
   }catch(e){if(e.name!=='AbortError')toast('共有できませんでした。「PNGで保存」から画像を保存してSNSに添付してください。');}

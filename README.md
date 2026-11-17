@@ -1,71 +1,61 @@
-# project001
+# 人生、山あり谷あり。 — 人生年表メーカー
 
-Claude CodeによるAI開発OS。新規アプリ開発に共通する開発方針・タスク管理・レビュー手順をテンプレートとして提供する。
+できごとと、そのときの気持ちを記録して、人生の折れ線グラフを作る静的Webアプリです。日本のバラエティ番組の年表をイメージした、読みやすいテロップと紙のようなデザイン。PCは入力とプレビューの2列、スマホはタブ切り替えで使えます。
 
-## セットアップ
+## できること
 
-1. `git clone`等でこのリポジトリを取得する。
-2. （任意）`bash .claude/bootstrap.sh`を実行し、Optional Dependency（Agent-Reach/Code Review Graph/Context7/GitHub CLI等）の導入状況を確認する。インストールは行わず案内のみを表示するため、実行しなくてもproject001は完全に動作する。
-3. AGENTS.mdの開発フロー（User → Manager → Planner → Developer → Reviewer → Manager → Complete）に従って進める。
+- 転機・年齢・学年の3つの作成ガイド。小学校〜大学、社会人の開始年齢にも対応。追加時は既存の記録を保持します。
+- 0〜120歳、最大100件の節目。できごと・コメント・0〜10の調子を入力。詳細設定で−10〜−1を解放できます。
+- 年齢の間隔に沿ったグラフと、点を選んで読む思い出。同じ年齢の複数イベント、削除の取り消し、時系列再生。
+- PNG / SVG画像、再編集用JSON、MP4またはWebM動画の保存。対応端末ではPNGをOSの共有画面へ渡せます。
+- 横長・正方形・縦長の画像レイアウト。節目が多ければ複数ページになり、ページごとに保存できます。長いコメントは画像の高さを広げて全内容を残します。
 
-## 使い方
+## 起動と検証
 
-新規アプリを開発する場合、このリポジトリをコピーして雛形として使う。個別アプリの仕様・実装コードはproject001自体には追加しない。以降はAGENTS.mdの開発フローに従って進める。
+アプリ自体にはビルドもパッケージのインストールも必要ありません。Python 3で静的配信できます。
 
-### 新規プロジェクトでの初期化
+```sh
+python3 dev-server.py
+# http://localhost:3000
+```
 
-`/init-project`コマンド（`.claude/commands/init-project.md`）を実行するか、以下の手順を直接行う。コピー直後にこの手順を行わないと、新規プロジェクトのSessionStart Hookがproject001自身の構築履歴を表示し続けてしまう。docs/のうちtasks.md/progress.md/decisions.mdの3つのみをリセットする。
+Node.js 22以降がある場合は、次のコマンドでも操作できます。`npm install` は不要です。
 
-- `docs/tasks.md`: 「## タスク一覧」表のヘッダ行と区切り行は残し、`T-xxx`の行をすべて削除する。「## バックログ」の既存項目もすべて削除する。列構成は変えない（SessionStart Hookが状態列の値でフィルタするため）。
-- `docs/progress.md`: 「## 記録フォーマット」直後の`---`（この行を含む）より下をすべて削除する。
-- `docs/decisions.md`: 同様に`---`（この行を含む）より下のD-xxxをすべて削除する。
-- 型付き言語を使う場合は、docs/capability-layer.md「派生プロジェクトでの推奨プラグイン」に従ってCode intelligenceプラグインの有効化を検討する（使用言語が未定なら、決まった時点で行う）。
-- （任意）PR作成からマージまでの自動化を使う場合は、docs/agents.md「PR作成からマージまでの自動化」の雛形を、派生プロジェクトのCLAUDE.mdまたは個人設定に追記する。
-- `CLAUDE.md`: project001自身の運用を説明する記述（「Skills / Capability Layer」節など）を派生側の実態に合わせて書き換え、次の2節を追加する。`## コマンド`（ビルド・テスト・lint・起動の実コマンド）と、UIがある場合の`## デザイントークン`（配色・タイポグラフィ・余白。docs/design-workflow.md「デザイントークンの往復」の記録先）。
-- `README.md`: プロジェクト名・概要を書き換える。本節「### 新規プロジェクトでの初期化」自体は削除してよい。
+```sh
+npm run dev
+npm test
+npm run check
+```
+
+`dev-server.py` は `--port 4173 --host 127.0.0.1 --strictPort` の形式にも対応します。ES Modulesを使うため、`index.html` を直接開かずHTTPで配信してください。
+
+## GitHub Pagesで公開
+
+変更をmainへ反映後、リポジトリの **Settings → Pages → Deploy from a branch → main / (root)** を選びます。相対パスなので、このリポジトリの `/-/` 配下でも動きます。Pagesの有効化はこの変更には含みません。
+
+## 保存とプライバシー
+
+入力内容はこのブラウザの `localStorage` にのみ自動保存します。通信API、外部フォント、解析、データアップロードはありません。CSPでも `connect-src 'none'` を指定しています。サンプルは自分の下書きとは別データです。
+
+ブラウザのデータ削除、別端末への移動、プライベートモード終了で下書きが失われることがあります。大切な記録は「編集データを保存」からJSONでもバックアップしてください。JSONの読み込みは検証後に確認画面を出し、現在の内容を置き換えます。不正なファイルでは下書きを変更しません。
+
+画像・動画の生成も端末内で行います。シェアボタンだけがOSの共有画面を開き、実際の投稿先・送信は利用者が選びます。Web Share APIはHTTPSと対応ブラウザが必要です。非対応の端末では保存した画像を手動で添付できます。
+
+## 出力の仕様と制限
+
+- PNG / SVGは全コメントを含みます。横長・正方形は6件、縦長は10件ずつページ分けします。長文時は文字を切り捨てず画像を縦に拡張するため、指定の比率より縦長になる場合があります。
+- 動画は音声なし。節目の数に応じて8秒〜約3分でグラフをたどり、最後に約1.2秒停止します。長いタイトル・コメントは動画内では省略表示です。全文を残す用途には画像やJSONをご利用ください。
+- `MediaRecorder` と `canvas.captureStream` に対応するブラウザで動画を作れます。MP4を優先し、非対応ならWebMを使います。実際の対応状況は画面に表示します。GIF出力はありません。
+- 文字表示には端末にある日本語フォントを使用します。環境によって字形や絵文字の見え方は変わります。
+- データ形式はバージョン1。読み込みは250KBまでで、値域・文字数・重複ID・不正な制御文字などを検証します。
 
 ## 構成
 
-- AGENTS.md
-  - 開発方針・設計原則・ワークフロー（全AIエージェント共通、最優先で読む）
+- `index.html` / `styles.css`: 画面とレスポンシブデザイン
+- `app.js`: 入力、端末保存、プレビュー、共有、ダイアログ
+- `model.js`: データ検証、ガイド、年齢に沿った座標計算
+- `export.js`: SVG / PNGと動画の描画
+- `tests/model.test.js`: 保存形式、入力境界、ガイド、グラフ、出力の回帰テスト
+- `docs/design.md`: デザイン仕様
 
-- REVIEW.md
-  - レビュー方針（敵対的検証 / Adversarial Review）。reviewer Agentが従う
-
-- CLAUDE.md
-  - Claude Code固有の設定・運用ルール（AGENTS.mdをimportする）
-
-- .claude/agents
-  - planner / designer / researcher / developer / reviewer
-
-- .claude/skills/design-principles
-  - UI/UXデザインの品質判断基準（designer/developer/reviewerが使用）
-
-- .claude/settings.json
-  - SessionStart / PreCompact / PostToolUse / SubagentStop / SessionEnd Hook（セッション継続性・ドキュメント品質の補助）、subagentStatusLine（サブエージェント進捗の可視化）、enabledPlugins（Frontend Designをproject scopeで有効化）。詳細はdocs/agents.md・docs/design-workflow.md
-
-- .claude/bootstrap.sh
-  - Optional Dependency（Capability Layer）の導入状況を案内のみで表示する検出スクリプト。インストールは行わない
-
-- .claude/commands/init-project.md
-  - `/init-project`コマンド。新規プロジェクトでの初期化手順（本READMEの該当節）を実行する
-
-- docs
-  - tasks.md: タスクと状態管理
-  - progress.md: 作業履歴
-  - decisions.md: 設計判断の記録
-  - agents.md: Agent構成・モデル構成・Hook/Status Line構成の詳細
-  - agent-reach.md: [Agent-Reach](https://github.com/Panniantong/Agent-Reach) 対応（Optional Dependency、検出・フォールバック方針）
-  - code-review-graph.md: [Code Review Graph](https://github.com/tirth8205/code-review-graph) 対応（Optional Dependency、影響範囲解析）
-  - context7.md: [Context7](https://github.com/upstash/context7) 対応（Optional Dependency、ライブラリドキュメント確認）
-  - capability-layer.md: 外部ツール検出の共通規約（Capability Layer）
-  - research-workflow.md: 外部調査ワークフロー
-  - design-workflow.md: デザインワークフロー（Designer/Claude Design/Frontend Designプラグインの連携）
-  - status-line.md: サブエージェント進捗の可視化（Status Line）の仕様
-
-## 開発フロー
-
-User → Manager → Planner → Developer → Reviewer → Manager → Complete
-（外部調査が必要な場合のみResearcherが、UI/UX実装を伴う場合のみDesignerが加わる）
-
-詳細は AGENTS.md・REVIEW.md・docs/agents.md・docs/design-workflow.md を参照。
+元の開発用テンプレートの運用文書は保持しています。このリポジトリにアプリを作成する、という利用者の指定に従って実装しています。

@@ -7,7 +7,7 @@
 | T-001 | 要件整理・デザイン設計 | 高 | 完了 | Planner / Designer |
 | T-002 | 端末内で完結する年表編集・グラフ・保存 | 高 | 完了 | Developer |
 | T-003 | 動作検証・独立レビュー | 高 | 検証保留 | Reviewer / Manager |
-| T-004 | GitHubの変更ブランチ・PR作成 | 高 | 進行中 | Manager |
+| T-004 | GitHubの変更ブランチ・PR作成 | 高 | 完了 | Manager |
 
 ## バックログ
 

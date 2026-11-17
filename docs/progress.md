@@ -17,4 +17,5 @@
 - 独立レビューで動画の文字配置・最終イベント表示・XML不正文字を修正。テスト7件とJavaScript/Pythonの構文確認成功。
 - 全3レイアウトのSVGを生成・XML確認。横長SVGをInkscapeで描画し全6件の表示を確認。
 - 管理プレビューの中継起動待ちがタイムアウト。実ブラウザの画面/PNG API/実録画は未検証。詳細はverification.md。
-- 作業ブランチ codex/life-timeline-maker をGitHub連携で作成済み。検証状態を明記したPRを準備中。
+- 作業ブランチ codex/life-timeline-maker に実装を反映。実装コミット 8c733a82d5f73e1fc7a8c98c14e5c2126dd68798。
+- Draft PR https://github.com/Nagamaki0311/-/pull/1 を作成。実ブラウザ検証保留と公開手順を明記。mainへのマージとPagesの有効化は未実施。

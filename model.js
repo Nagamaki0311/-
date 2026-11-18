@@ -75,12 +75,26 @@ export function chartGeometry(events, box={x:70,y:45,width:910,height:280}) {
 }
 export function escapeXml(value) { return cleanText(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c])); }
 export const layoutSpecs = {
-  wide: {width:1600,height:1000,cardWidth:276,plotHeight:320,label:'横長'},
-  square: {width:1200,height:1200,cardWidth:260,plotHeight:400,label:'正方形'},
-  portrait: {width:1080,height:1600,cardWidth:248,plotHeight:480,label:'縦長'}
+  wide: {width:1600,height:1000,ratio:1.6,cardWidth:276,plotHeight:172,label:'横長'},
+  square: {width:1200,height:1200,ratio:1,cardWidth:260,plotHeight:172,label:'正方形'},
+  portrait: {width:1080,height:1600,ratio:0.675,cardWidth:248,plotHeight:172,label:'縦長'}
 };
-
-// ===== SECTION: One connected board, with collision-free annotation lanes =====
+export function periodLabel(record){return `${record.age}歳${record.label&&record.label.trim()!==record.age+'歳'?' / '+record.label:''}`;}
+export function documentHeading(doc) { const name=cleanText(doc.name||'').trim();return name?name+'の人生年表':'わたしの人生年表'; }
+// Legacy version-1 title is retained in JSON backups, but no longer drives displayed headings.
+export function removeEvents(doc, ids) {
+  const selected=new Set(ids);
+  const removed=doc.events.map((record,index)=>({record,index})).filter(item=>selected.has(item.record.id));
+  return {document:{...doc,events:doc.events.filter(record=>!selected.has(record.id))},removed};
+}
+export function restoreEvents(doc, removed) {
+  const ids=new Set(doc.events.map(record=>record.id));
+  const restoring=removed.filter(item=>!ids.has(item.record.id)).sort((a,b)=>a.index-b.index);
+  if(doc.events.length+restoring.length>MAX_EVENTS)throw new Error('節目が上限に達しています。空きを作ってからお試しください。');
+  const events=[...doc.events];for(const {record,index} of restoring)events.splice(Math.min(index,events.length),0,record);
+  return {...doc,events};
+}
+// ===== SECTION: Readable folded timeline, one canvas with a declared local age axis per row =====
 export function wrapText(text, maxUnits) {
   const lines=[];
   for(const paragraph of String(text).split('\n')) {
@@ -94,59 +108,71 @@ export function wrapText(text, maxUnits) {
   }
   return lines;
 }
-export function timelineLayout(doc) {
-  const spec=layoutSpecs[doc.layout],list=sortedEvents(doc.events);
-  const width=Math.max(spec.width,Math.min(2800,Math.ceil(Math.sqrt(Math.max(1,list.length)))*300));
-  const pad=66,plotX=pad+36,plotWidth=width-pad*2-60;
-  const titleLines=wrapText(doc.title||'わたしの人生年表',(width-pad*2)/42);
-  const nameLines=wrapText(doc.name?doc.name+'の人生年表':'あなただけの人生年表',(width-pad*2)/20);
-  const headerHeight=154+nameLines.length*29+titleLines.length*58;
-  const raw=chartGeometry(list,{x:plotX,y:0,width:plotWidth,height:spec.plotHeight});
-  const banks={top:[],bottom:[]},gap=50;
-  const bubbles=raw.points.map((point,index)=>{
-    const cardWidth=spec.cardWidth;
-    const x=Math.max(pad,Math.min(width-pad-cardWidth,point.x-cardWidth/2));
-    const periodLines=wrapText(`${point.age}歳${point.label?' / '+point.label:''}`,(cardWidth-48)/16);
-    const title=point.title||'まだ名前のない、できごと';
-    const titleText=wrapText(title,(cardWidth-40)/22);
-    const commentLines=point.comment?wrapText(point.comment,(cardWidth-40)/18):[];
-    const height=24+periodLines.length*24+18+titleText.length*31+(commentLines.length?14+commentLines.length*27:0)+22;
-    function freeLane(bank){let i=0;while(bank[i]?.items.some(b=>x<b.x+b.width+gap&&x+cardWidth+gap>b.x))i++;return i;}
-    const topIndex=freeLane(banks.top),bottomIndex=freeLane(banks.bottom);
-    const side=topIndex<bottomIndex?'top':bottomIndex<topIndex?'bottom':index%2?'bottom':'top';
-    const lane=side==='top'?topIndex:bottomIndex;
-    if(!banks[side][lane])banks[side][lane]={height:0,items:[]};
-    const bubble={...point,index,x,y:0,width:cardWidth,height,side,lane,periodLines,titleLines:titleText,commentLines};
-    banks[side][lane].items.push(bubble);banks[side][lane].height=Math.max(banks[side][lane].height,height);
-    return bubble;
-  });
-  const bankHeight=bank=>bank.reduce((sum,lane)=>sum+lane.height+gap,0);
-  const topHeight=bankHeight(banks.top),bottomHeight=bankHeight(banks.bottom);
-  const chartY=headerHeight+topHeight+48;
-  const chartBottom=chartY+spec.plotHeight;
-  for(const side of ['top','bottom']){
-    let offset=0;
-    for(const lane of banks[side]){
-      for(const bubble of lane.items)bubble.y=side==='top'?chartY-48-offset-bubble.height:chartBottom+82+offset;
-      offset+=lane.height+gap;
-    }
+function eventCard(record,index,cardWidth) {
+  const periodLines=wrapText(periodLabel(record),(cardWidth-44)/16);
+  const titleLines=record.title?wrapText(record.title,(cardWidth-40)/21):[];
+  const commentLines=record.comment?wrapText(record.comment,(cardWidth-40)/18):[];
+  const height=24+periodLines.length*24+(titleLines.length?14+titleLines.length*30:0)+(commentLines.length?12+commentLines.length*26:0)+20;
+  return {...record,index,width:cardWidth,height,periodLines,titleLines,commentLines};
+}
+function partitionTimeline(cards,columns) {
+  const rows=[];let row=[];
+  for(const card of cards){
+    const previous=row.at(-1);
+    // A large unrecorded age gap starts a new, labelled local time range rather than compressing recent events.
+    if(row.length>=columns||(previous&&card.age-previous.age>12)){rows.push(row);row=[];}
+    row.push(card);
   }
-  const points=raw.points.map(p=>({...p,y:p.y+chartY}));
-  const byId=new Map(points.map(p=>[p.id,p]));
-  bubbles.forEach(b=>{
-    b.point=byId.get(b.id);
-    const laneItems=banks[b.side][b.lane].items;
-    const routeY=b.side==='top'?Math.min(...laneItems.map(c=>c.y))-38:Math.max(...laneItems.map(c=>c.y+c.height))+12;
-    const gutterX=30+b.index%4*5;
-    const edgeY=b.side==='top'?chartY-12:chartBottom+43;
-    const targetY=b.side==='top'?b.y:b.y+b.height;
-    // Route through reserved lane gaps and outside all cards, never through a neighbour.
-    b.connector=b.lane===0
-      ? [{x:b.point.x,y:b.point.y},{x:b.point.x,y:edgeY},{x:b.x+b.width/2,y:edgeY},{x:b.x+b.width/2,y:b.side==='top'?b.y+b.height:b.y}]
-      : [{x:b.point.x,y:b.point.y},{x:b.point.x,y:edgeY},{x:gutterX,y:edgeY},{x:gutterX,y:routeY},{x:b.x+b.width/2,y:routeY},{x:b.x+b.width/2,y:targetY}];
+  if(row.length)rows.push(row);
+  return rows.length?rows:[[]];
+}
+export function timelineLayout(doc) {
+  const spec=layoutSpecs[doc.layout],list=sortedEvents(doc.events),pad=52,rowGap=38;
+  const headerHeight=72+wrapText(documentHeading(doc),(spec.width-pad*2)/38).length*50;
+  const cards=list.map((record,index)=>eventCard(record,index,spec.cardWidth));
+  const low=list.some(record=>record.score<0)?-10:0;
+  let best;
+  for(let columns=1;columns<=Math.min(9,Math.max(1,cards.length));columns++){
+    const groups=partitionTimeline(cards,columns);
+    const rowHeights=groups.map(group=>50+spec.plotHeight+72+Math.max(110,...group.map(card=>card.height))+24);
+    let width=Math.max(spec.width,...groups.map(group=>{
+      const ages=[...new Set(group.map(card=>card.age))];
+      const span=(ages.at(-1)??0)-(ages[0]??0),deltas=ages.slice(1).map((age,i)=>age-ages[i]);
+      const temporal=span?span/Math.min(...deltas)*68:0;
+      return Math.max(group.length*(spec.cardWidth+26)-26+pad*2,temporal+spec.cardWidth+pad*2);
+    }));
+    const naturalHeight=headerHeight+rowHeights.reduce((sum,h)=>sum+h,0)+rowGap*Math.max(0,groups.length-1)+50;
+    width=Math.max(width,naturalHeight*spec.ratio);
+    const height=Math.max(naturalHeight,width/spec.ratio,spec.height);
+    width=Math.max(width,height*spec.ratio);
+    const paddingFraction=Math.max(0,height-naturalHeight)/height;
+    const cost=width*height*(1+groups.length*.006+paddingFraction*.8);
+    if(!best||cost<best.cost)best={width:Math.ceil(width),height:Math.ceil(height),groups,rowHeights,cost,columns};
+  }
+  const {width,height,groups,rowHeights}=best,rows=[],points=[],bubbles=[];
+  const extra=Math.max(0,height-headerHeight-50-rowHeights.reduce((sum,h)=>sum+h,0)-rowGap*Math.max(0,groups.length-1));
+  let y=headerHeight;
+  groups.forEach((group,rowIndex)=>{
+    const rowHeight=rowHeights[rowIndex]+extra/groups.length;
+    const minAge=group[0]?.age??0,maxAge=group.at(-1)?.age??1;
+    const plotHeight=spec.plotHeight+Math.min(180,extra/groups.length*.7);
+    const box={x:pad+spec.cardWidth/2,y:y+44,width:width-pad*2-spec.cardWidth,height:plotHeight};
+    const row={index:rowIndex,y,height:rowHeight,minAge,maxAge,box,eventIds:group.map(card=>card.id)};rows.push(row);
+    group.forEach((card,slot)=>{
+      const x=minAge===maxAge?box.x+box.width/2:box.x+(card.age-minAge)/(maxAge-minAge)*box.width;
+      const point={...card,x,y:box.y+(10-card.score)/(10-low)*box.height,row:rowIndex};points.push(point);
+      const slotWidth=(width-pad*2)/Math.max(1,group.length);
+      const bubble={...card,x:pad+slotWidth*(slot+.5)-card.width/2,y:box.y+box.height+72,width:card.width,point,row:rowIndex,slot};
+      // Each event owns a separate horizontal channel in the whitespace between plot and cards.
+      const channelY=box.y+box.height+38+slot*.75;
+      bubble.connector=[{x:point.x,y:point.y},{x:point.x,y:channelY},{x:bubble.x+bubble.width/2,y:channelY},{x:bubble.x+bubble.width/2,y:bubble.y}];
+      bubbles.push(bubble);
+    });
+    y+=rowHeight+rowGap;
   });
-  const height=Math.max(spec.height,chartBottom+82+bottomHeight+88);
-  return {width,height,pad,headerHeight,titleLines,nameLines,bubbles,points,low:raw.low,maxAge:raw.maxAge,box:{x:plotX,y:chartY,width:plotWidth,height:spec.plotHeight},banks};
+  const byAge=new Map();for(const point of points){const key=point.row+':'+point.age+':'+point.score;byAge.set(key,(byAge.get(key)||0)+1);}
+  for(const point of points)point.coincident=byAge.get(point.row+':'+point.age+':'+point.score);
+  return {width,height,pad,headerHeight,heading:documentHeading(doc),titleLines:wrapText(documentHeading(doc),(width-pad*2)/38),nameLines:[],rows,points,bubbles,low,maxAge:Math.max(1,...list.map(record=>record.age)),box:rows[0].box,columns:best.columns,folded:rows.length>1,targetRatio:spec.ratio};
 }
 export function rasterPlan(width,height,{maxDimension=8192,maxPixels=16000000}={}) {
   const scale=Math.min(1,maxDimension/width,maxDimension/height,Math.sqrt(maxPixels/(width*height)));

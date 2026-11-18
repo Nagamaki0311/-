@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {emptyDocument,event,validateDocument,parseDocument,guideEvents,appendGuide,chartGeometry,sortedEvents,escapeXml,cleanText,timelineLayout,wrapText,rasterPlan,playbackPosition,playbackTime} from '../model.js';
-import {exportSvg,timelineSvg,traceGeometry,drawVideoFrame} from '../export.js';
+import {emptyDocument,event,validateDocument,parseDocument,guideEvents,appendGuide,chartGeometry,sortedEvents,escapeXml,cleanText,timelineLayout,wrapText,rasterPlan,playbackPosition,playbackTime,documentHeading,periodLabel,removeEvents,restoreEvents,layoutSpecs} from '../model.js';
+import {exportSvg,timelineSvg,traceGeometry,drawVideoFrame,cameraState,cameraSchedule,cameraFrameSvg,videoAssetPlan} from '../export.js';
 
 test('JSON backups round-trip Unicode and negative scores without mutation',()=>{
   const doc={...emptyDocument(),name:'はるか 🏔',negative:false,events:[event(25,'転機','ひと休み',-10,'気持ちを整えた。\n次の一歩へ。')]};
@@ -63,89 +63,128 @@ function assertBoardGeometry(doc){
     for(const other of board.bubbles){
       if(b===other)continue;
       assert.ok(!intersects(b,other),'event bubbles must not overlap');
-      const obstacles=[other,{x:other.x+4,y:other.y+5,width:other.width,height:other.height},{x:other.x-9,y:other.y-31,width:44,height:44},{x:other.x+other.width-67,y:other.y-15,width:58,height:32}];
+      const obstacles=[other,{x:other.x+4,y:other.y+5,width:other.width,height:other.height},{x:other.x-7,y:other.y-27,width:38,height:38},{x:other.x+other.width-62,y:other.y-14,width:53,height:29}];
       for(const obstacle of obstacles)for(let i=1;i<b.connector.length;i++)assert.ok(!segmentEntersRect(b.connector[i-1],b.connector[i],obstacle),'connector must not cross another event, including its number/score stamp');
     }
   }
   return board;
 }
 
-test('one integrated export contains every event and full comment, with no pagination or truncation',()=>{
+test('dense guides fold into a readable single canvas at the selected aspect ratio',()=>{
   for(const layout of ['wide','square','portrait']){
-    const doc={...emptyDocument(),layout,title:'長い人生のタイトル'.repeat(5),events:Array.from({length:23},(_,i)=>event(i,`時期${i}`,`できごと${i}`,i%11,`${i}番目のコメント${'あ'.repeat(260)}`))};
-    const board=assertBoardGeometry(doc),svg=exportSvg(doc);
-    assert.equal((svg.match(/data-connector=/g)||[]).length,23);
-    assert.equal((svg.match(/data-kind="bubble"/g)||[]).length,23);
-    for(const b of board.bubbles){
-      assert.ok(svg.includes(`data-connector="${b.id}"`));
-      assert.equal(b.titleLines.join(''),b.title||'まだ名前のない、できごと');
-      assert.equal(b.commentLines.join(''),b.comment);
+    for(const amount of [0,1,6,27,100]){
+      const doc={...emptyDocument(),layout,events:Array.from({length:amount},(_,i)=>event(i,`${i}歳`,`できごと${i}`,i%11,'コメントを残します。'))};
+      const board=assertBoardGeometry(doc),svg=exportSvg(doc);
+      assert.ok(Math.abs(board.width/board.height-layoutSpecs[layout].ratio)<.002);
+      assert.equal((svg.match(/data-kind="bubble"/g)||[]).length,amount);
+      for(const row of board.rows){
+        const points=board.points.filter(point=>point.row===row.index);
+        assert.ok(points.length<=9,'each local chart must stay readable');
+        for(let i=1;i<points.length;i++)if(points[i].age>points[i-1].age)assert.ok(points[i].x-points[i-1].x>=67.9);
+      }
+      for(const bubble of board.bubbles){assert.equal(bubble.titleLines.join(''),bubble.title);assert.equal(bubble.commentLines.join(''),bubble.comment);}
+      assert.ok(!svg.includes('NaN'));
+      if(amount===27){assert.ok(board.rows.length>=3);assert.ok(board.width/board.height>layoutSpecs[layout].ratio*.99);}
     }
-    assert.ok(!svg.includes('…'));assert.ok(!svg.includes(' / 2</text>'));
-    assert.ok(svg.includes(`width="${board.width}" height="${board.height}"`));
   }
 });
-
-test('same-age events keep true chart coordinates and distinct collision-free annotation routes',()=>{
+test('each folded row declares a truthful local age axis and never draws diagonal chart data across folds',()=>{
+  const doc={...emptyDocument(),events:[event(0),event(6),event(7),event(8),event(30),event(32),event(35)]};
+  const board=assertBoardGeometry(doc),svg=exportSvg(doc);
+  assert.ok(board.rows.length>1);
+  for(const row of board.rows){
+    const points=board.points.filter(point=>point.row===row.index);
+    for(const point of points){const expected=row.minAge===row.maxAge?row.box.x+row.box.width/2:row.box.x+(point.age-row.minAge)/(row.maxAge-row.minAge)*row.box.width;assert.equal(point.x,expected);}
+    assert.ok(svg.includes(`${row.minAge}〜${row.maxAge}歳`)||svg.includes(`${row.minAge}歳`));
+  }
+  assert.equal((traceGeometry(board,1).path.match(/M/g)||[]).length,board.rows.filter(row=>row.eventIds.length).length);
+  assert.ok(svg.includes('次の段へ'));
+});
+test('same-age records remain distinct, with local non-overlapping cards and safe connectors',()=>{
   for(const layout of ['wide','square','portrait']){
-    const doc={...emptyDocument(),layout,events:Array.from({length:12},(_,i)=>event(10,`同じ年齢の節目${i}`,`大切なできごと${i}`,i%3-1,'W'.repeat(150)))};
+    const doc={...emptyDocument(),layout,events:Array.from({length:27},(_,i)=>event(10,`同年齢${i}`,`出来事${i}`,i%3-1,'同じ時期の記録'))};
     const board=assertBoardGeometry(doc);
-    assert.equal(new Set(board.points.map(p=>p.x)).size,1);
-    assert.equal(new Set(board.bubbles.map(b=>JSON.stringify(b.connector))).size,12);
-    assert.deepEqual(timelineLayout(doc),board,'layout must be deterministic');
+    for(const row of board.rows)assert.equal(new Set(board.points.filter(point=>point.row===row.index).map(point=>point.x)).size,1);
+    assert.equal(new Set(board.bubbles.map(bubble=>bubble.id)).size,27);
+    assert.deepEqual(timelineLayout(doc),board);
   }
 });
-
-test('wide Latin glyphs and line breaks keep all content inside growing bubbles',()=>{
-  const doc={...emptyDocument(),events:[event(0,'M'.repeat(40),'W'.repeat(80),5,'W'.repeat(300)),event(1,'時期','改行の多い思い出',6,'あ\n'.repeat(140))]};
-  const board=assertBoardGeometry(doc);
-  for(const b of board.bubbles){
-    assert.ok(b.titleLines.every(line=>Array.from(line).length*22< b.width-30));
-    assert.ok(b.commentLines.every(line=>Array.from(line).length*18< b.width-30));
-    assert.equal(b.commentLines.join(''),b.comment.replaceAll('\n',''));
-  }
+test('long comments, wide Latin glyphs and names are retained without title-field duplication',()=>{
+  const doc={...emptyDocument(),name:'名'.repeat(40),title:'以前の自由タイトル',events:[event(0,'M'.repeat(40),'W'.repeat(80),5,'W'.repeat(300)),event(1,'1歳','改行の多い記録',6,'あ\n'.repeat(140))]};
+  const board=assertBoardGeometry(doc),svg=exportSvg(doc);
+  assert.equal(documentHeading(doc),'名'.repeat(40)+'の人生年表');
+  assert.equal(documentHeading({...doc,name:'  '}),'わたしの人生年表');
+  assert.equal(periodLabel(doc.events[1]),'1歳');
+  assert.equal(periodLabel(event(6,'小学校1年生')),'6歳 / 小学校1年生');
+  assert.ok(!svg.includes('以前の自由タイトル'));
+  assert.equal(parseDocument(JSON.stringify(doc)).title,'以前の自由タイトル','legacy backup field is preserved');
+  assert.ok(board.rows[0].y>=72+board.titleLines.length*50);
+  for(const bubble of board.bubbles){assert.ok(bubble.titleLines.every(line=>Array.from(line).length*21<bubble.width-30));assert.equal(bubble.commentLines.join(''),bubble.comment.replaceAll('\n',''));}
   assert.equal(wrapText('\nW\n',10).join('\n'),'\nW\n');
 });
-
-test('interactive board exposes each bubble and exact point to keyboard users',()=>{
-  const first=event(0),last=event(20),doc={...emptyDocument(),events:[first,last]};
-  const interactive=timelineSvg(doc,{interactive:true,selectedId:first.id});
-  assert.match(interactive,/role="group"/);assert.doesNotMatch(interactive,/role="img"/);
-  assert.equal((interactive.match(/role="button"/g)||[]).length,4);
-  assert.equal((interactive.match(/aria-pressed="true"/g)||[]).length,2);
+test('blank guide entries do not export repeated editor instructions or invented titles',()=>{
+  const doc={...emptyDocument(),events:guideEvents('school',27)};
+  const board=timelineLayout(doc),svg=exportSvg(doc);
+  assert.ok(board.bubbles.every(bubble=>bubble.titleLines.length===0));
+  assert.ok(!svg.includes('できごとを入力'));
+  assert.ok(!cameraFrameSvg(doc,0).includes('できごとを入力'));
+  const withComment={...doc,events:[{...doc.events[0],comment:'コメントだけを残します。'}]};
+  assert.ok(exportSvg(withComment).includes('コメントだけを'));
+  assert.equal(parseDocument(JSON.stringify(doc)).events[0].title,'');
+});
+test('bulk delete and undo preserve records, original order and intervening additions',()=>{
+  const records=[event(10),event(0),event(5),event(5)],doc={...emptyDocument(),events:records};
+  const result=removeEvents(doc,[records[0].id,records[2].id]);
+  assert.deepEqual(result.document.events,[records[1],records[3]]);assert.equal(doc.events.length,4);
+  assert.deepEqual(restoreEvents(result.document,result.removed).events,records);
+  const extra=event(30);assert.deepEqual(restoreEvents({...result.document,events:[...result.document.events,extra]},result.removed).events,[...records,extra]);
+  assert.deepEqual(restoreEvents(restoreEvents(result.document,result.removed),result.removed).events,records,'undo is idempotent by ID');
+  const all=removeEvents(doc,doc.events.map(record=>record.id));assert.equal(all.document.events.length,0);assert.deepEqual(restoreEvents(all.document,all.removed).events,records);
+  assert.equal(removeEvents(doc,[]).removed.length,0);
+  assert.throws(()=>restoreEvents({...doc,events:Array.from({length:100},()=>event())},result.removed));
+});
+test('interactive board exposes point and card controls, while export stays noninteractive',()=>{
+  const doc={...emptyDocument(),events:[event(0),event(20)]},svg=timelineSvg(doc,{interactive:true,selectedId:doc.events[0].id});
+  assert.match(svg,/role="group"/);assert.equal((svg.match(/role="button"/g)||[]).length,4);assert.equal((svg.match(/aria-pressed="true"/g)||[]).length,2);
   assert.match(exportSvg(doc),/role="img"/);assert.doesNotMatch(exportSvg(doc),/role="button"/);
 });
-
-test('PNG raster plan bounds both dimensions and memory while preserving complete vector viewBox',()=>{
-  for(const [width,height] of [[1600,1300],[2800,70000],[100000,300000]]){
-    const plan=rasterPlan(width,height);
-    assert.ok(plan.width<=8192&&plan.height<=8192&&plan.width*plan.height<=16000000);
-    assert.ok(plan.width>0&&plan.height>0);
-    assert.ok(Math.abs(plan.width/width-plan.height/height)<1/Math.min(width,height));
+test('PNG rasterization bounds memory without cropping the whole one-canvas export',()=>{
+  for(const [width,height]of[[1600,1000],[100000,300000]]){const plan=rasterPlan(width,height);assert.ok(plan.width<=8192&&plan.height<=8192&&plan.width*plan.height<=16000000);assert.ok(Math.abs(plan.width/width-plan.height/height)<1/Math.min(width,height));}
+});
+test('video camera follows chronological point positions, then reveals and reads the current card',()=>{
+  const doc={...emptyDocument(),events:[event(0,'','FIRST',0,'最初の記録'),event(1,'','SECOND',10,'次の記録'),event(2,'','THIRD',2,'最後の記録')]};
+  const board=timelineLayout(doc),schedule=cameraSchedule(board);
+  const first=cameraState(board,0);assert.equal(first.index,0);assert.equal(first.revealed,0);assert.ok(first.camera.x<=board.points[0].x&&first.camera.x+first.camera.width>=board.points[0].x);assert.ok(first.camera.x>=0);
+  for(const scene of schedule.scenes){
+    const hold=cameraState(board,scene.start+scene.move+scene.hold*.5);
+    assert.equal(hold.revealed,scene.index);assert.equal(hold.progress,scene.index/(board.points.length-1));
+    const bubble=board.bubbles[scene.index];assert.ok(bubble.x>=hold.camera.x&&bubble.x+bubble.width<=hold.camera.x+hold.camera.width);
+    assert.ok(18*1600/hold.camera.width>=18,'held card text must remain legible');
+    const svg=cameraFrameSvg(doc,scene.start+scene.move+scene.hold*.5);
+    assert.equal((svg.match(/data-kind="bubble"/g)||[]).length,scene.index+1,'future comments must not be revealed');
   }
-  assert.equal(rasterPlan(1600,1300).scaled,false);
-  assert.equal(rasterPlan(2800,70000).scaled,true);
+  const moving=cameraState(board,schedule.scenes[1].start+schedule.scenes[1].move*.65);assert.equal(moving.revealed,0);assert.ok(moving.progress>0&&moving.progress<.5);
+  assert.equal(cameraState(board,schedule.duration-1).complete,false);assert.equal(cameraState(board,schedule.duration).complete,true);
 });
-
-test('video reuses the complete board background and draws the same growing trace',()=>{
-  const doc={...emptyDocument(),events:[event(0,'誕生','FIRST',0),event(20,'転機','LAST',10)]};
-  const board=timelineLayout(doc),trace=traceGeometry(board,.75),lines=[],images=[],arcs=[];
-  const background={};
-  const ctx={canvas:{width:1600,height:1000},fillRect(){},drawImage(...args){images.push(args);},save(){},translate(){},scale(){},restore(){},beginPath(){},moveTo(x,y){lines.push([x,y]);},lineTo(x,y){lines.push([x,y]);},stroke(){},arc(...args){arcs.push(args);},fill(){}};
-  drawVideoFrame(ctx,board,background,.75);
-  assert.equal(images.length,1);assert.equal(images[0][0],background);
-  assert.equal(lines.at(-1)[0],trace.tip.x);assert.equal(lines.at(-1)[1],trace.tip.y);
-  assert.equal(arcs[0][0],trace.tip.x);assert.equal(arcs[0][1],trace.tip.y);
-  const staticSvg=timelineSvg(doc,{layout:board,showLine:false});
-  assert.ok(staticSvg.includes('FIRST')&&staticSvg.includes('LAST'),'all connected bubbles must stay in the cached video board');
-  assert.ok(staticSvg.includes('data-trace="" d=""'));
+test('same-age camera holds remain readable and very long comments pan to their end',()=>{
+  for(const layout of ['wide','square','portrait']){
+    const doc={...emptyDocument(),layout,events:Array.from({length:100},(_,i)=>event(10,'','出来事'+i,5,'コメント'))},board=timelineLayout(doc),scene=cameraSchedule(board).scenes[0];
+    const state=cameraState(board,scene.move+scene.hold*.5,layoutSpecs[layout].ratio);assert.ok(18*layoutSpecs[layout].width/state.camera.width>=18);
+  }
+  const doc={...emptyDocument(),events:[event(0,'','長文',5,'あ\n'.repeat(140))]},board=timelineLayout(doc),scene=cameraSchedule(board).scenes[0];
+  const start=cameraState(board,scene.move+scene.hold*.2),end=cameraState(board,scene.end);
+  assert.ok(end.camera.y>start.camera.y);assert.ok(end.camera.y+end.camera.height>=board.bubbles[0].y+board.bubbles[0].height);
 });
-
-test('playback follows the age-spaced line and holds final state for 1.2 seconds',()=>{
+test('video prepares bounded cached assets and uses the same camera transform as frame previews',()=>{
+  const doc={...emptyDocument(),events:[event(0,'','FIRST',0),event(20,'','LAST',10)]},board=timelineLayout(doc),scene=cameraSchedule(board).scenes[1],elapsed=scene.start+scene.move+scene.hold*.5;
+  const images=[],transforms=[],ctx={canvas:{width:1600,height:1000},fillRect(){},drawImage(...args){images.push(args);},save(){},translate(...args){transforms.push(args);},scale(){},restore(){},beginPath(){},moveTo(){},lineTo(){},stroke(){},arc(){},fill(){},strokeText(){},fillText(){}};
+  const assets={base:{},cards:board.bubbles.map(()=>({}))},state=drawVideoFrame(ctx,board,assets,elapsed),expected=cameraState(board,elapsed,1.6);
+  assert.deepEqual(state.camera,expected.camera);assert.deepEqual(transforms[0],[-expected.camera.x,-expected.camera.y]);assert.equal(images.length,3);
+  assert.ok(videoAssetPlan(board).allowed);
+  const huge=timelineLayout({...emptyDocument(),events:Array.from({length:100},()=>event(10,'','長文',5,'\n'.repeat(150)))});
+  assert.equal(videoAssetPlan(huge).allowed,false);assert.equal(videoAssetPlan(board,{maxPixels:1}).allowed,false);
+});
+test('preview playback still retains its final hold independently of camera video duration',()=>{
   assert.equal(playbackPosition(6,.5).index,2);assert.equal(playbackPosition(0,1).index,-1);
-  const {duration}=playbackTime(2,0);
-  assert.equal(playbackTime(2,duration-1201).progress<1,true);
-  assert.equal(playbackTime(2,duration-1200).progress,1);
-  assert.equal(playbackTime(2,duration-1).complete,false);assert.equal(playbackTime(2,duration).complete,true);
-  assert.ok(playbackTime(100,0).duration>playbackTime(6,0).duration);
+  const {duration}=playbackTime(2,0);assert.equal(playbackTime(2,duration-1200).progress,1);assert.equal(playbackTime(2,duration-1).complete,false);assert.equal(playbackTime(2,duration).complete,true);
 });

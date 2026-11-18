@@ -1,10 +1,11 @@
-import {MAX_EVENTS,STORAGE_KEY,emptyDocument,sampleDocument,event,sortedEvents,parseDocument,guideEvents,appendGuide,escapeXml,cleanText,timelineLayout,rasterPlan,playbackPosition,playbackTime} from './model.js';
-import {timelineSvg,traceGeometry,exportSvg,svgToCanvas,canvasBlob,videoMime,createVideo} from './export.js';
+import {MAX_EVENTS,STORAGE_KEY,emptyDocument,sampleDocument,event,sortedEvents,parseDocument,guideEvents,appendGuide,escapeXml,cleanText,timelineLayout,rasterPlan,playbackPosition,playbackTime,documentHeading,periodLabel,removeEvents,restoreEvents} from './model.js';
+import {timelineSvg,traceGeometry,exportSvg,svgToCanvas,canvasBlob,videoMime,createVideo,cameraSchedule} from './export.js';
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)], esc=escapeXml;
 let doc=emptyDocument(),sample=sampleDocument(),showingSample=true,selectedId=null,guide='turning',toastTimer,undo=null;
 let playRaf=0,playStart=0,playElapsed=0,playing=false,playProgress=1;
 let exportDoc=null,pngPromise=null,videoBlob=null,videoUrl=null,videoController=null;
 let previewLayout=null,previewKey='',highlightedId='',boardZoom=.85;
+let checkedIds=new Set(),pendingDeleteIds=[];
 // ===== SECTION: Persistence and user feedback =====
 function toast(message,action=null) {
   clearTimeout(toastTimer);const box=$('#toast');box.replaceChildren(document.createTextNode(message));
@@ -26,28 +27,29 @@ function setMobileView(view){document.body.dataset.mobileView=view;$('#tab-edit'
 $('#tab-edit').onclick=()=>setMobileView('edit');$('#tab-preview').onclick=()=>setMobileView('preview');
 // ===== SECTION: Editor and guides =====
 function renderEditor(){
-  $('#name').value=doc.name;$('#timeline-title').value=doc.title;$('#negative').checked=doc.negative;
+  $('#name').value=doc.name;$('#negative').checked=doc.negative;
+  checkedIds=new Set([...checkedIds].filter(id=>doc.events.some(e=>e.id===id)));
   $('#sample-notice').hidden=!showingSample;$('#event-count').textContent=doc.events.length;
   $$('#sample-badge').forEach(e=>e.hidden=!showingSample);
   const list=sortedEvents(doc.events);
   if(selectedId&&!list.some(e=>e.id===selectedId)&&!showingSample)selectedId=null;
   $('#event-list').innerHTML=list.length?list.map((e,i)=>{
     const open=e.id===selectedId;
-    return `<article class="event-item${open?' selected':''}" data-id="${esc(e.id)}"><button class="event-toggle" aria-expanded="${open}" aria-controls="event-${i}"><span class="event-index">${String(i+1).padStart(2,'0')}</span><span class="event-toggle-body"><small>${e.age}歳${e.label?' / '+esc(e.label):''}</small><b>${esc(e.title||'どんなことがありましたか？')}</b></span><span class="event-score">${e.score}</span><span class="chevron" aria-hidden="true">${open?'−':'＋'}</span></button><div class="event-fields" id="event-${i}" ${open?'':'hidden'}><div class="event-two-fields"><label>年齢<input type="number" data-field="age" min="0" max="120" step="1" required value="${e.age}" aria-label="節目${i+1}の年齢"></label><label>区分・時期<input data-field="label" maxlength="40" value="${esc(e.label)}" placeholder="例：高校3年生"></label></div><label>できごと<input data-field="title" maxlength="80" value="${esc(e.title)}" placeholder="例：はじめての一人暮らし"></label><label>ひとことコメント <textarea data-field="comment" maxlength="300" rows="2" placeholder="そのとき、どんな気持ちだった？">${esc(e.comment)}</textarea></label><div><div class="score-label"><label for="score-${i}">この時期の、人生の調子</label><output id="score-output-${i}">${e.score}</output></div><input id="score-${i}" type="range" data-field="score" min="${doc.negative||e.score<0?-10:0}" max="10" step="1" value="${e.score}" aria-describedby="score-output-${i}"><div class="range-ends"><span>${doc.negative||e.score<0?'−10 どん底':'0 しょんぼり'}</span><span>10 絶好調！</span></div></div><button class="delete-event" type="button">この節目を削除</button></div></article>`;
-  }).join(''):'<div class="empty-state"><span aria-hidden="true">✎</span><b>最初の一歩は、思い出ひとつ。</b><p>上のガイドで節目を追加するか、<br>下のボタンから自由に書いてみよう。</p></div>';
+    return `<article class="event-item${open?' selected':''}" data-id="${esc(e.id)}"><div class="event-row"><label class="event-select-label"><input class="event-select" type="checkbox" aria-label="節目${i+1}を選択" ${checkedIds.has(e.id)?'checked':''}><span class="visually-hidden">選択</span></label><button class="event-toggle" aria-expanded="${open}" aria-controls="event-${i}"><span class="event-index">${String(i+1).padStart(2,'0')}</span><span class="event-toggle-body"><small>${esc(periodLabel(e))}</small><b>${esc(e.title||'どんなことがありましたか？')}</b></span><span class="event-score">${e.score}</span><span class="chevron" aria-hidden="true">${open?'−':'＋'}</span></button></div><div class="event-fields" id="event-${i}" ${open?'':'hidden'}><div class="event-two-fields"><label>年齢<input type="number" data-field="age" min="0" max="120" step="1" required value="${e.age}" aria-label="節目${i+1}の年齢"></label><label>区分・時期<input data-field="label" maxlength="40" value="${esc(e.label)}" placeholder="例：高校3年生"></label></div><label>できごと<input data-field="title" maxlength="80" value="${esc(e.title)}" placeholder="例：はじめての一人暮らし"></label><label>ひとことコメント <textarea data-field="comment" maxlength="300" rows="2" placeholder="そのとき、どんな気持ちだった？">${esc(e.comment)}</textarea></label><div><div class="score-label"><label for="score-${i}">この時期の、人生の調子</label><output id="score-output-${i}">${e.score}</output></div><input id="score-${i}" type="range" data-field="score" min="${doc.negative||e.score<0?-10:0}" max="10" step="1" value="${e.score}" aria-describedby="score-output-${i}"><div class="range-ends"><span>${doc.negative||e.score<0?'−10 どん底':'0 しょんぼり'}</span><span>10 絶好調！</span></div></div><button class="delete-event" type="button">この節目を削除</button></div></article>`;
+  }).join(''):'<div class="empty-state"><p>ガイドか「できごとを追加」から始めてください。</p></div>';
   $('#add-event').disabled=doc.events.length>=MAX_EVENTS;
+  updateBulkControls();
   $('#json-save').textContent=showingSample?'↓ サンプルの編集データを保存':'↓ 編集データを保存';
   updateLayoutButtons();
 }
 function updateLayoutButtons(){const layout=currentDoc().layout;$$('[data-layout]').forEach(b=>{b.classList.toggle('selected',b.dataset.layout===layout);b.setAttribute('aria-pressed',b.dataset.layout===layout);});}
 $('#name').addEventListener('input',e=>{ensureOwn();doc.name=cleanText(e.target.value);commit();});
-$('#timeline-title').addEventListener('input',e=>{ensureOwn();doc.title=cleanText(e.target.value);commit();});
 $('#start-own').onclick=()=>{ensureOwn();persist();renderEditor();renderPreview();$('#name').focus();};
 $$('[data-guide]').forEach(b=>b.onclick=()=>{
   guide=b.dataset.guide;
   $$('[data-guide]').forEach(x=>{x.classList.toggle('selected',x===b);x.setAttribute('aria-pressed',x===b);});
   $('#work-start-label').hidden=guide!=='school';
-  $('#guide-hint').textContent=guide==='age'?'0歳から現在までを1歳ずつ追加します。入力済みの記録はそのまま。':guide==='school'?'一般的な入学年齢が目安です。学年・年齢はあとで自由に直せます。':'人生が動いた、その瞬間から。あとで自由に追加できます。';
+  $('#guide-hint').textContent=guide==='age'?'0歳から現在までを1歳ずつ追加します。入力済みの記録はそのまま。':guide==='school'?'一般的な入学年齢が目安です。学年・年齢はあとで自由に直せます。':'指定した年齢の節目を追加します。';
 });
 $('#apply-guide').onclick=()=>{
   try{
@@ -66,14 +68,31 @@ $('#add-event').onclick=()=>{
 $('#event-list').addEventListener('click',e=>{
   const item=e.target.closest('.event-item');if(!item)return;
   if(e.target.closest('.event-toggle')){const id=item.dataset.id;selectedId=selectedId===id?null:id;renderEditor();renderPreview();if(selectedId)revealEvent(selectedId);[...$('#event-list').children].find(el=>el.dataset.id===id)?.querySelector('.event-toggle')?.focus({preventScroll:true});return;}
-  if(e.target.closest('.delete-event')){
-    const index=doc.events.findIndex(x=>x.id===item.dataset.id),removed=doc.events[index];doc.events.splice(index,1);undo={removed,index};selectedId=sortedEvents(doc.events).at(-1)?.id||null;persist();renderEditor();renderPreview();const next=[...$('#event-list').children].find(el=>el.dataset.id===selectedId)?.querySelector('.event-toggle')||$('#add-event');next.focus({preventScroll:true});
-    toast('節目を削除しました。',{label:'元に戻す',run:()=>{
-      if(!undo)return;if(doc.events.length>=MAX_EVENTS){toast('節目が上限に達しています。空きを作ってからお試しください。');return;}
-      const {removed,index}=undo;doc.events.splice(index,0,removed);selectedId=removed.id;undo=null;persist();renderEditor();renderPreview();toast('節目を元に戻しました。');
-    }});
-  }
+  if(e.target.closest('.delete-event'))deleteRecords([item.dataset.id]);
 });
+function updateBulkControls(){
+  $('#bulk-count').textContent=`${checkedIds.size}件選択`;
+  $('#bulk-delete').disabled=!checkedIds.size;$('#delete-all').disabled=!doc.events.length;
+  const all=$('#bulk-select-all');all.checked=doc.events.length>0&&checkedIds.size===doc.events.length;all.indeterminate=checkedIds.size>0&&checkedIds.size<doc.events.length;all.disabled=!doc.events.length;
+}
+function deleteRecords(ids){
+  const result=removeEvents(doc,ids);if(!result.removed.length)return;
+  ensureOwn();stopPlayback(true);doc=result.document;undo=result.removed;checkedIds.clear();selectedId=null;persist();renderEditor();renderPreview();
+  toast(`${result.removed.length}件の節目を削除しました。`,{label:'元に戻す',run:()=>{
+    if(!undo)return;try{doc=restoreEvents(doc,undo);selectedId=undo[0]?.record.id||null;undo=null;persist();renderEditor();renderPreview();toast('削除した節目を元の順序で戻しました。');}catch(error){toast(error.message);}
+  }});
+  $('#add-event').focus({preventScroll:true});
+}
+function confirmBulkDelete(ids){
+  if(!ids.length)return;pendingImport=null;pendingDeleteIds=[...ids];
+  $('#confirm-title').textContent=`${ids.length}件の節目を削除しますか？`;
+  $('#confirm-message').textContent='選択した節目のできごと・コメント・スコアをまとめて削除します。削除後は「元に戻す」で取り消せます。';
+  $('#confirm-yes').textContent='削除する';$('#confirm-dialog').showModal();
+}
+$('#bulk-select-all').onchange=e=>{checkedIds=e.target.checked?new Set(doc.events.map(record=>record.id)):new Set();renderEditor();};
+$('#bulk-delete').onclick=()=>confirmBulkDelete([...checkedIds]);
+$('#delete-all').onclick=()=>confirmBulkDelete(doc.events.map(record=>record.id));
+$('#event-list').addEventListener('change',e=>{if(!e.target.classList.contains('event-select'))return;const id=e.target.closest('.event-item').dataset.id;if(e.target.checked)checkedIds.add(id);else checkedIds.delete(id);updateBulkControls();});
 $('#event-list').addEventListener('input',e=>{
   const field=e.target.dataset.field;if(!field)return;
   const item=e.target.closest('.event-item'),record=doc.events.find(x=>x.id===item.dataset.id);if(!record)return;
@@ -81,7 +100,7 @@ $('#event-list').addEventListener('input',e=>{
     if(!e.target.validity.valid||e.target.value==='')return;
     record[field]=Number(e.target.value);
   }else record[field]=cleanText(e.target.value);
-  item.querySelector('.event-toggle-body small').textContent=`${record.age}歳${record.label?' / '+record.label:''}`;
+  item.querySelector('.event-toggle-body small').textContent=periodLabel(record);
   item.querySelector('.event-toggle-body b').textContent=record.title||'どんなことがありましたか？';
   item.querySelector('.event-score').textContent=record.score;
   item.querySelector('output').value=record.score;
@@ -122,7 +141,7 @@ function renderPreview(){
   if(key!==previewKey){
     previewLayout=timelineLayout(d);previewKey=key;
     $('#chart').innerHTML=timelineSvg(d,{layout:previewLayout,selectedId:active,progress:playProgress,interactive:true});
-    highlightedId=active;applyZoom(false);
+    highlightedId=active;$('#board-summary').textContent=`${list.length}件・${previewLayout.rows.length}段 / ${previewLayout.width}×${previewLayout.height}px`;applyZoom(false);
   }
   updateBoardProgress(playProgress,active);$('#play').disabled=!list.length;
 }
@@ -137,18 +156,18 @@ function selectPoint(target){
   if(keepFocus)[...$('#chart').querySelectorAll('[data-event-id]')].find(el=>el.dataset.eventId===selectedId&&el.dataset.kind===kind)?.focus({preventScroll:true});
 }
 $('#chart').addEventListener('click',e=>selectPoint(e.target));
-$('#chart').addEventListener('focusin',()=>{if(playing){stopPlayback();$('#play-label').textContent='ちょっと、ひと休み。';}});
+$('#chart').addEventListener('focusin',()=>{if(playing){stopPlayback();$('#play-label').textContent='一時停止';}});
 $('#chart').addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();selectPoint(e.target);}});
 $('#zoom-in').onclick=()=>{boardZoom=Math.min(1.8,boardZoom*1.25);applyZoom();};
 $('#zoom-out').onclick=()=>{boardZoom=Math.max(.08,boardZoom/1.25);applyZoom();};
 $('#zoom-readable').onclick=()=>{boardZoom=.85;applyZoom();};
 $('#zoom-fit').onclick=()=>{if(!previewLayout)return;const v=$('#board-viewport');boardZoom=Math.max(.001,Math.min(1,v.clientWidth/previewLayout.width,v.clientHeight/previewLayout.height));applyZoom();v.scrollTop=0;v.scrollLeft=0;};
-function stopPlayback(reset=false){cancelAnimationFrame(playRaf);playing=false;$('#play').textContent='▶';$('#play').setAttribute('aria-label','人生を再生');if(reset){playElapsed=0;playProgress=1;$('#play-label').textContent='人生を、再生してみる。';$('#play-hint').textContent='あの日から今まで、時系列で振り返ろう。';}}
-function frame(now){playElapsed=now-playStart;const state=playbackTime(currentDoc().events.length,playElapsed);playProgress=state.progress;updateBoardProgress(playProgress,previewLayout?.points[playbackPosition(previewLayout.points.length,playProgress).index]?.id||'');if(!state.complete){playRaf=requestAnimationFrame(frame);}else{selectedId=previewLayout?.points.at(-1)?.id||null;stopPlayback();playElapsed=0;$('#play-label').textContent='ここまで、よく歩いてきたね。';$('#play-hint').textContent='もう一度再生して、あなたの物語を振り返ろう。';}}
+function stopPlayback(reset=false){cancelAnimationFrame(playRaf);playing=false;$('#play').textContent='▶';$('#play').setAttribute('aria-label','人生を再生');if(reset){playElapsed=0;playProgress=1;$('#play-label').textContent='年表を再生';$('#play-hint').textContent='折れ線を時系列にたどります。';}}
+function frame(now){playElapsed=now-playStart;const state=playbackTime(currentDoc().events.length,playElapsed);playProgress=state.progress;updateBoardProgress(playProgress,previewLayout?.points[playbackPosition(previewLayout.points.length,playProgress).index]?.id||'');if(!state.complete){playRaf=requestAnimationFrame(frame);}else{selectedId=previewLayout?.points.at(-1)?.id||null;stopPlayback();playElapsed=0;$('#play-label').textContent='再生が終了しました';$('#play-hint').textContent='もう一度再生できます。';}}
 $('#play').onclick=()=>{
-  if(playing){stopPlayback();$('#play-label').textContent='ちょっと、ひと休み。';return;}
+  if(playing){stopPlayback();$('#play-label').textContent='一時停止';return;}
   if(!currentDoc().events.length)return;
-  playing=true;playStart=performance.now()-playElapsed;$('#play').textContent='Ⅱ';$('#play').setAttribute('aria-label','再生を一時停止');$('#play-label').textContent='あの日から、今のあなたへ。';$('#play-hint').textContent='グラフの点を押すと、その日の思い出が見られます。';playRaf=requestAnimationFrame(frame);
+  playing=true;playStart=performance.now()-playElapsed;$('#play').textContent='Ⅱ';$('#play').setAttribute('aria-label','再生を一時停止');$('#play-label').textContent='再生中';$('#play-hint').textContent='点を選ぶと停止します。';playRaf=requestAnimationFrame(frame);
 };
 $('#reset-play').onclick=()=>{stopPlayback(true);renderPreview();};
 // ===== SECTION: Backups and modal lifecycle =====
@@ -157,14 +176,14 @@ $('#json-open').onclick=()=>$('#json-file').click();
 let pendingImport=null;
 $('#json-file').onchange=async e=>{
   const file=e.target.files[0];e.target.value='';if(!file)return;
-  try{if(file.size>250000)throw new Error('ファイルが大きすぎます（250KBまで）。');pendingImport=parseDocument(await file.text());$('#confirm-title').textContent='年表データを読み込みますか？';$('#confirm-message').textContent=`${pendingImport.events.length}件の節目を読み込みます。現在の年表は置き換わります。必要なら先に「編集データを保存」でバックアップしてください。`;$('#confirm-dialog').showModal();}
+  try{if(file.size>250000)throw new Error('ファイルが大きすぎます（250KBまで）。');pendingImport=parseDocument(await file.text());pendingDeleteIds=[];$('#confirm-yes').textContent='読み込む';$('#confirm-title').textContent='年表データを読み込みますか？';$('#confirm-message').textContent=`${pendingImport.events.length}件の節目を読み込みます。現在の年表は置き換わります。必要なら先に「編集データを保存」でバックアップしてください。`;$('#confirm-dialog').showModal();}
   catch(error){pendingImport=null;toast(error.message);}
 };
-$('#confirm-yes').onclick=()=>{if(!pendingImport)return;ensureOwn();stopPlayback(true);doc=pendingImport;pendingImport=null;selectedId=null;undo=null;persist();renderEditor();renderPreview();$('#confirm-dialog').close();toast('年表を読み込みました。');};
+$('#confirm-yes').onclick=()=>{if(pendingDeleteIds.length){const ids=[...pendingDeleteIds];pendingDeleteIds=[];$('#confirm-dialog').close();deleteRecords(ids);return;}if(!pendingImport)return;ensureOwn();stopPlayback(true);doc=pendingImport;pendingImport=null;selectedId=null;undo=null;checkedIds.clear();persist();renderEditor();renderPreview();$('#confirm-dialog').close();toast('年表を読み込みました。');};
 $$('.close-dialog').forEach(b=>b.onclick=()=>b.closest('dialog').close());
 $('#help-open').onclick=$('#privacy-open').onclick=()=>$('#help-dialog').showModal();
 $$('dialog').forEach(d=>d.addEventListener('click',e=>{if(e.target===d){const r=d.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)d.close();}}));
-$('#confirm-dialog').addEventListener('close',()=>pendingImport=null);
+$('#confirm-dialog').addEventListener('close',()=>{pendingImport=null;pendingDeleteIds=[];});
 // ===== SECTION: Image export and native file sharing =====
 function refreshExport(){
   const layout=timelineLayout(exportDoc),svg=exportSvg(exportDoc),plan=rasterPlan(layout.width,layout.height);
@@ -178,12 +197,12 @@ $('#svg-save').onclick=()=>{download(new Blob([exportSvg(exportDoc)],{type:'imag
 $('#share').onclick=async()=>{
   try{
     const blob=await pngPromise,file=new File([blob],filename('png'),{type:'image/png'});
-    if(navigator.canShare?.({files:[file]})&&navigator.share){await navigator.share({files:[file],title:exportDoc.title||'わたしの人生年表'});toast('共有画面に画像を渡しました。');}
+    if(navigator.canShare?.({files:[file]})&&navigator.share){await navigator.share({files:[file],title:documentHeading(exportDoc)});toast('共有画面に画像を渡しました。');}
     else{download(blob,file.name);toast('この端末は直接共有に非対応です。保存した画像をSNSに添付してください。');}
   }catch(e){if(e.name!=='AbortError')toast('共有できませんでした。「PNGで保存」から画像を保存してSNSに添付してください。');}
 };
 // ===== SECTION: Video creation and cleanup =====
-$('#video-open').onclick=()=>{const mime=videoMime();$('#video-support').textContent=mime?`このブラウザで作成する形式：${mime.includes('mp4')?'MP4':'WebM'}。${showingSample?'現在はサンプルの年表です。':''}`:'このブラウザでは動画作成に対応していません。PNGまたはSVGで保存できます。';$('#video-create').disabled=!mime;$('#video-dialog').showModal();};
+$('#video-open').onclick=()=>{const mime=videoMime(),duration=Math.ceil(cameraSchedule(timelineLayout(currentDoc())).duration/1000);$('#video-duration').textContent=`約${duration}秒。コメントの長さに合わせて各節目で停止します。`; $('#video-support').textContent=mime?`このブラウザで作成する形式：${mime.includes('mp4')?'MP4':'WebM'}。${showingSample?'現在はサンプルの年表です。':''}`:'このブラウザでは動画作成に対応していません。PNGまたはSVGで保存できます。';$('#video-create').disabled=!mime;$('#video-dialog').showModal();};
 $('#video-create').onclick=async()=>{
   if(!currentDoc().events.length){toast('動画にする節目を、ひとつ以上追加してください。');return;}
   const snapshot=structuredClone(currentDoc());$('#video-create').disabled=true;$('#video-create').textContent='動画を作成しています…';$('#video-progress').hidden=false;$('#video-progress').value=0;$('#video-save').hidden=true;

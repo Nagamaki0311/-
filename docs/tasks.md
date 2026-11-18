@@ -10,6 +10,9 @@
 | T-004 | GitHubの変更ブランチ・PR作成 | 高 | 完了 | Manager |
 | T-005 | 時期・出来事・コメント・折れ線を単一盤面へ統合 | 高 | 完了 | Designer / Developer |
 | T-006 | 統合年表の描画検証・独立レビュー・再公開 | 高 | 完了 | Reviewer / Manager |
+| T-007 | 密集年表の折り返し配置・比率最適化 | 高 | 完了 | Designer / Developer |
+| T-008 | 一括削除・名前見出し・操作画面の整理 | 高 | 完了 | Developer |
+| T-009 | 年表を追う動画カメラ・検証・再公開 | 高 | 完了 | Developer / Reviewer / Manager |
 
 ## バックログ
 

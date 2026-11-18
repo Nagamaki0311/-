@@ -1,6 +1,8 @@
 // ===== SECTION: Data model and trust boundary =====
 export const VERSION = 1;
-export const MAX_EVENTS = 100;
+export const NORMAL_EVENT_LIMIT = 30;
+export const MAX_EVENTS = 121;
+export const AGE_GUIDE_WARNING = '年齢ごとは30件を超えて追加できます。件数によっては正常に表示・出力できない場合があります。';
 export const STORAGE_KEY = 'jinsei-timeline-v1';
 export function uid() { return globalThis.crypto?.randomUUID?.() ?? `e-${Date.now()}-${Math.random().toString(36).slice(2)}`; }
 export function event(age = 0, label = '', title = '', score = 5, comment = '') {
@@ -10,13 +12,13 @@ export function emptyDocument() {
   return { version: VERSION, name: '', title: 'わたしの人生年表', layout: 'wide', negative: false, events: [] };
 }
 export function sampleDocument() {
-  return { ...emptyDocument(), name: 'サンプル', title: 'ここまでの人生、なかなかいい感じ。', events: [
-    event(0, '誕生', '人生、はじまりました！', 7, 'たくさんの愛情に囲まれて、すくすく。'),
-    event(6, '小学校1年生', 'ランドセルと、大きな一歩', 8, '毎日が発見。親友にも出会えた。'),
-    event(13, '中学校2年生', 'はじめての挫折…', 3, '部活も勉強もうまくいかない。でも、今につながる時間。'),
-    event(18, '大学1年生', '世界がぐっと広がった！', 9, '新しい街、新しい仲間。やりたいことが見つかった。'),
-    event(22, '社会人1年目', '社会の荒波に、もまれる', 4, '慣れない仕事に四苦八苦。少しずつ自分のペースで。'),
-    event(27, '新しい挑戦', '好きなことを仕事に！', 10, '遠回りも、ぜんぶ自分のストーリー。')
+  return { ...emptyDocument(), name: 'サンプル', title: 'わたしの人生年表', events: [
+    event(0, '誕生', '誕生', 7, '家族と過ごす。'),
+    event(6, '小学校1年生', '小学校に入学', 8, '友人ができ、学校生活に慣れた。'),
+    event(13, '中学校2年生', '部活動で悩む', 3, '練習と勉強の両立が難しかった。'),
+    event(18, '大学1年生', '大学に進学', 9, '一人暮らしを始め、新しい友人もできた。'),
+    event(22, '社会人1年目', '就職', 4, '初めての仕事に慣れるまで時間がかかった。'),
+    event(27, '転職', '希望する職種に転職', 10, '仕事の選択肢が増え、生活も落ち着いた。')
   ] };
 }
 export function sortedEvents(events) { return events.map((e,i)=>({e,i})).sort((a,b)=>a.e.age-b.e.age || a.i-b.i).map(x=>x.e); }
@@ -60,10 +62,11 @@ export function guideEvents(mode, age, workStart = 22) {
   for(let a=workStart;a<=age;a++) result.push(event(a,`社会人${a-workStart+1}年目`));
   return sortedEvents(result);
 }
-export function appendGuide(doc, generated) {
+export function appendGuide(doc, generated, { mode = 'turning' } = {}) {
   const keys = new Set(doc.events.map(e=>`${e.age}\0${e.label}`));
-  const added = generated.filter(e=>!keys.has(`${e.age}\0${e.label}`));
-  if(doc.events.length + added.length > MAX_EVENTS) throw new Error(`追加すると${MAX_EVENTS}件を超えます。年齢の範囲を短くするか、転機ごとに追加してください。`);
+  const added = mode==='manual'?generated:generated.filter(e=>!keys.has(`${e.age}\0${e.label}`));
+  const limit=mode==='age'?MAX_EVENTS:NORMAL_EVENT_LIMIT;
+  if(added.length&&doc.events.length + added.length > limit) throw new Error(mode==='age'?`年齢ごとの節目は${MAX_EVENTS}件までです。`:`通常の節目は${NORMAL_EVENT_LIMIT}件までです。不要な節目を削除してください。`);
   return {...doc, events:[...doc.events,...added]};
 }
 export function chartGeometry(events, box={x:70,y:45,width:910,height:280}) {
@@ -75,9 +78,9 @@ export function chartGeometry(events, box={x:70,y:45,width:910,height:280}) {
 }
 export function escapeXml(value) { return cleanText(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c])); }
 export const layoutSpecs = {
-  wide: {width:1600,height:1000,ratio:1.6,cardWidth:276,plotHeight:172,label:'横長'},
-  square: {width:1200,height:1200,ratio:1,cardWidth:260,plotHeight:172,label:'正方形'},
-  portrait: {width:1080,height:1600,ratio:0.675,cardWidth:248,plotHeight:172,label:'縦長'}
+  wide: {width:1600,height:1000,ratio:1.6,label:'横長'},
+  square: {width:1200,height:1200,ratio:1,label:'正方形'},
+  portrait: {width:1080,height:1600,ratio:0.675,label:'縦長'}
 };
 export function periodLabel(record){return `${record.age}歳${record.label&&record.label.trim()!==record.age+'歳'?' / '+record.label:''}`;}
 export function documentHeading(doc) { const name=cleanText(doc.name||'').trim();return name?name+'の人生年表':'わたしの人生年表'; }
@@ -94,7 +97,7 @@ export function restoreEvents(doc, removed) {
   const events=[...doc.events];for(const {record,index} of restoring)events.splice(Math.min(index,events.length),0,record);
   return {...doc,events};
 }
-// ===== SECTION: Readable folded timeline, one canvas with a declared local age axis per row =====
+// ===== SECTION: Continuous panorama with a truthful age axis and local annotations =====
 export function wrapText(text, maxUnits) {
   const lines=[];
   for(const paragraph of String(text).split('\n')) {
@@ -115,64 +118,40 @@ function eventCard(record,index,cardWidth) {
   const height=24+periodLines.length*24+(titleLines.length?14+titleLines.length*30:0)+(commentLines.length?12+commentLines.length*26:0)+20;
   return {...record,index,width:cardWidth,height,periodLines,titleLines,commentLines};
 }
-function partitionTimeline(cards,columns) {
-  const rows=[];let row=[];
-  for(const card of cards){
-    const previous=row.at(-1);
-    // A large unrecorded age gap starts a new, labelled local time range rather than compressing recent events.
-    if(row.length>=columns||(previous&&card.age-previous.age>12)){rows.push(row);row=[];}
-    row.push(card);
-  }
-  if(row.length)rows.push(row);
-  return rows.length?rows:[[]];
-}
 export function timelineLayout(doc) {
-  const spec=layoutSpecs[doc.layout],list=sortedEvents(doc.events),pad=52,rowGap=38;
-  const headerHeight=72+wrapText(documentHeading(doc),(spec.width-pad*2)/38).length*50;
-  const cards=list.map((record,index)=>eventCard(record,index,spec.cardWidth));
-  const low=list.some(record=>record.score<0)?-10:0;
-  let best;
-  for(let columns=1;columns<=Math.min(9,Math.max(1,cards.length));columns++){
-    const groups=partitionTimeline(cards,columns);
-    const rowHeights=groups.map(group=>50+spec.plotHeight+72+Math.max(110,...group.map(card=>card.height))+24);
-    let width=Math.max(spec.width,...groups.map(group=>{
-      const ages=[...new Set(group.map(card=>card.age))];
-      const span=(ages.at(-1)??0)-(ages[0]??0),deltas=ages.slice(1).map((age,i)=>age-ages[i]);
-      const temporal=span?span/Math.min(...deltas)*68:0;
-      return Math.max(group.length*(spec.cardWidth+26)-26+pad*2,temporal+spec.cardWidth+pad*2);
-    }));
-    const naturalHeight=headerHeight+rowHeights.reduce((sum,h)=>sum+h,0)+rowGap*Math.max(0,groups.length-1)+50;
-    width=Math.max(width,naturalHeight*spec.ratio);
-    const height=Math.max(naturalHeight,width/spec.ratio,spec.height);
-    width=Math.max(width,height*spec.ratio);
-    const paddingFraction=Math.max(0,height-naturalHeight)/height;
-    const cost=width*height*(1+groups.length*.006+paddingFraction*.8);
-    if(!best||cost<best.cost)best={width:Math.ceil(width),height:Math.ceil(height),groups,rowHeights,cost,columns};
+  const list=sortedEvents(doc.events),pad=64,cardWidth=280,cardGap=24,plotHeight=560;
+  const cards=list.map((record,index)=>eventCard(record,index,cardWidth));
+  const groups=[];
+  for(const card of cards){
+    let group=groups.at(-1);
+    if(!group||group.age!==card.age){group={age:card.age,cards:[]};groups.push(group);}
+    group.cards.push(card);
   }
-  const {width,height,groups,rowHeights}=best,rows=[],points=[],bubbles=[];
-  const extra=Math.max(0,height-headerHeight-50-rowHeights.reduce((sum,h)=>sum+h,0)-rowGap*Math.max(0,groups.length-1));
-  let y=headerHeight;
-  groups.forEach((group,rowIndex)=>{
-    const rowHeight=rowHeights[rowIndex]+extra/groups.length;
-    const minAge=group[0]?.age??0,maxAge=group.at(-1)?.age??1;
-    const plotHeight=spec.plotHeight+Math.min(180,extra/groups.length*.7);
-    const box={x:pad+spec.cardWidth/2,y:y+44,width:width-pad*2-spec.cardWidth,height:plotHeight};
-    const row={index:rowIndex,y,height:rowHeight,minAge,maxAge,box,eventIds:group.map(card=>card.id)};rows.push(row);
-    group.forEach((card,slot)=>{
-      const x=minAge===maxAge?box.x+box.width/2:box.x+(card.age-minAge)/(maxAge-minAge)*box.width;
-      const point={...card,x,y:box.y+(10-card.score)/(10-low)*box.height,row:rowIndex};points.push(point);
-      const slotWidth=(width-pad*2)/Math.max(1,group.length);
-      const bubble={...card,x:pad+slotWidth*(slot+.5)-card.width/2,y:box.y+box.height+72,width:card.width,point,row:rowIndex,slot};
-      // Each event owns a separate horizontal channel in the whitespace between plot and cards.
-      const channelY=box.y+box.height+38+slot*.75;
+  for(const group of groups)group.width=group.cards.length*(cardWidth+cardGap)-cardGap;
+  const minAge=groups[0]?.age??0,maxAge=groups.at(-1)?.age??1,span=maxAge-minAge;
+  let ageScale=32;
+  for(let i=1;i<groups.length;i++)ageScale=Math.max(ageScale,((groups[i-1].width+groups[i].width)/2+64)/(groups[i].age-groups[i-1].age));
+  const left=(groups[0]?.width??cardWidth)/2,right=(groups.at(-1)?.width??cardWidth)/2;
+  const naturalWidth=pad*2+left+span*ageScale+right,width=Math.ceil(Math.max(1600,naturalWidth));
+  const inset=(width-naturalWidth)/2,firstX=pad+left+inset;
+  const titleLines=wrapText(documentHeading(doc),(width-pad*2-64)/38),headerHeight=64+titleLines.length*50;
+  const box={x:span&&groups.length?firstX:pad+60,y:headerHeight+40,width:span&&groups.length?span*ageScale:width-pad*2-120,height:plotHeight};
+  const low=list.some(record=>record.score<0)?-10:0,points=[],bubbles=[];
+  for(const group of groups){
+    const x=span?firstX+(group.age-minAge)*ageScale:width/2;
+    group.cards.forEach((card,slot)=>{
+      const point={...card,x,y:box.y+(10-card.score)/(10-low)*plotHeight,row:0};points.push(point);
+      const bubble={...card,x:x-group.width/2+slot*(cardWidth+cardGap),y:box.y+plotHeight+100,point,row:0,slot};
+      const channelY=box.y+plotHeight+42+card.index*20/Math.max(1,cards.length-1);
       bubble.connector=[{x:point.x,y:point.y},{x:point.x,y:channelY},{x:bubble.x+bubble.width/2,y:channelY},{x:bubble.x+bubble.width/2,y:bubble.y}];
       bubbles.push(bubble);
     });
-    y+=rowHeight+rowGap;
-  });
-  const byAge=new Map();for(const point of points){const key=point.row+':'+point.age+':'+point.score;byAge.set(key,(byAge.get(key)||0)+1);}
-  for(const point of points)point.coincident=byAge.get(point.row+':'+point.age+':'+point.score);
-  return {width,height,pad,headerHeight,heading:documentHeading(doc),titleLines:wrapText(documentHeading(doc),(width-pad*2)/38),nameLines:[],rows,points,bubbles,low,maxAge:Math.max(1,...list.map(record=>record.age)),box:rows[0].box,columns:best.columns,folded:rows.length>1,targetRatio:spec.ratio};
+  }
+  const height=Math.ceil(box.y+plotHeight+100+Math.max(100,...bubbles.map(bubble=>bubble.height))+48);
+  const byPoint=new Map();for(const point of points){const key=point.age+':'+point.score;byPoint.set(key,(byPoint.get(key)||0)+1);}
+  for(const point of points)point.coincident=byPoint.get(point.age+':'+point.score);
+  const row={index:0,y:headerHeight,height:height-headerHeight-48,minAge,maxAge,box,eventIds:list.map(record=>record.id)};
+  return {width,height,pad,headerHeight,heading:documentHeading(doc),titleLines,nameLines:[],rows:[row],points,bubbles,low,minAge,maxAge,box,ageScale,panorama:true,folded:false};
 }
 export function rasterPlan(width,height,{maxDimension=8192,maxPixels=16000000}={}) {
   const scale=Math.min(1,maxDimension/width,maxDimension/height,Math.sqrt(maxPixels/(width*height)));

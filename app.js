@@ -1,4 +1,4 @@
-import {MAX_EVENTS,STORAGE_KEY,emptyDocument,sampleDocument,event,sortedEvents,parseDocument,guideEvents,appendGuide,escapeXml,cleanText,timelineLayout,rasterPlan,playbackPosition,playbackTime,documentHeading,periodLabel,removeEvents,restoreEvents} from './model.js';
+import {NORMAL_EVENT_LIMIT,AGE_GUIDE_WARNING,STORAGE_KEY,emptyDocument,sampleDocument,event,sortedEvents,parseDocument,guideEvents,appendGuide,escapeXml,cleanText,timelineLayout,rasterPlan,playbackPosition,playbackTime,documentHeading,periodLabel,removeEvents,restoreEvents} from './model.js';
 import {timelineSvg,traceGeometry,exportSvg,svgToCanvas,canvasBlob,videoMime,createVideo,cameraSchedule} from './export.js';
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)], esc=escapeXml;
 let doc=emptyDocument(),sample=sampleDocument(),showingSample=true,selectedId=null,guide='turning',toastTimer,undo=null;
@@ -35,12 +35,16 @@ function renderEditor(){
   if(selectedId&&!list.some(e=>e.id===selectedId)&&!showingSample)selectedId=null;
   $('#event-list').innerHTML=list.length?list.map((e,i)=>{
     const open=e.id===selectedId;
-    return `<article class="event-item${open?' selected':''}" data-id="${esc(e.id)}"><div class="event-row"><label class="event-select-label"><input class="event-select" type="checkbox" aria-label="節目${i+1}を選択" ${checkedIds.has(e.id)?'checked':''}><span class="visually-hidden">選択</span></label><button class="event-toggle" aria-expanded="${open}" aria-controls="event-${i}"><span class="event-index">${String(i+1).padStart(2,'0')}</span><span class="event-toggle-body"><small>${esc(periodLabel(e))}</small><b>${esc(e.title||'どんなことがありましたか？')}</b></span><span class="event-score">${e.score}</span><span class="chevron" aria-hidden="true">${open?'−':'＋'}</span></button></div><div class="event-fields" id="event-${i}" ${open?'':'hidden'}><div class="event-two-fields"><label>年齢<input type="number" data-field="age" min="0" max="120" step="1" required value="${e.age}" aria-label="節目${i+1}の年齢"></label><label>区分・時期<input data-field="label" maxlength="40" value="${esc(e.label)}" placeholder="例：高校3年生"></label></div><label>できごと<input data-field="title" maxlength="80" value="${esc(e.title)}" placeholder="例：はじめての一人暮らし"></label><label>ひとことコメント <textarea data-field="comment" maxlength="300" rows="2" placeholder="そのとき、どんな気持ちだった？">${esc(e.comment)}</textarea></label><div><div class="score-label"><label for="score-${i}">この時期の、人生の調子</label><output id="score-output-${i}">${e.score}</output></div><input id="score-${i}" type="range" data-field="score" min="${doc.negative||e.score<0?-10:0}" max="10" step="1" value="${e.score}" aria-describedby="score-output-${i}"><div class="range-ends"><span>${doc.negative||e.score<0?'−10 どん底':'0 しょんぼり'}</span><span>10 絶好調！</span></div></div><button class="delete-event" type="button">この節目を削除</button></div></article>`;
+    return `<article class="event-item${open?' selected':''}" data-id="${esc(e.id)}"><div class="event-row"><label class="event-select-label"><input class="event-select" type="checkbox" aria-label="節目${i+1}を選択" ${checkedIds.has(e.id)?'checked':''}><span class="visually-hidden">選択</span></label><button class="event-toggle" aria-expanded="${open}" aria-controls="event-${i}"><span class="event-index">${String(i+1).padStart(2,'0')}</span><span class="event-toggle-body"><small>${esc(periodLabel(e))}</small><b>${esc(e.title||'未入力')}</b></span><span class="event-score">${e.score}</span><span class="chevron" aria-hidden="true">${open?'−':'＋'}</span></button></div><div class="event-fields" id="event-${i}" ${open?'':'hidden'}><div class="event-two-fields"><label>年齢<input type="number" data-field="age" min="0" max="120" step="1" required value="${e.age}" aria-label="節目${i+1}の年齢"></label><label>区分・時期<input data-field="label" maxlength="40" value="${esc(e.label)}" placeholder="例：高校3年生"></label></div><label>できごと<input data-field="title" maxlength="80" value="${esc(e.title)}" placeholder="例：はじめての一人暮らし"></label><label>コメント <textarea data-field="comment" maxlength="300" rows="2" placeholder="コメントを入力">${esc(e.comment)}</textarea></label><div><div class="score-label"><label for="score-${i}">人生の調子</label><output id="score-output-${i}">${e.score}</output></div><input id="score-${i}" type="range" data-field="score" min="${doc.negative||e.score<0?-10:0}" max="10" step="1" value="${e.score}" aria-describedby="score-output-${i}"><div class="range-ends"><span>${doc.negative||e.score<0?'−10 低い':'0 低い'}</span><span>10 高い</span></div></div><button class="delete-event" type="button">この節目を削除</button></div></article>`;
   }).join(''):'<div class="empty-state"><p>ガイドか「できごとを追加」から始めてください。</p></div>';
-  $('#add-event').disabled=doc.events.length>=MAX_EVENTS;
-  updateBulkControls();
+  $('#add-event').disabled=doc.events.length>=NORMAL_EVENT_LIMIT;
+  updateBulkControls();updateGuideNotice();
   $('#json-save').textContent=showingSample?'↓ サンプルの編集データを保存':'↓ 編集データを保存';
   updateLayoutButtons();
+}
+function updateGuideNotice(){
+  const warning=$('#age-warning');warning.hidden=guide!=='age'&&doc.events.length<=NORMAL_EVENT_LIMIT;
+  warning.textContent=guide==='age'?AGE_GUIDE_WARNING:'30件を超える年表は、正常に表示・出力できない場合があります。';
 }
 function updateLayoutButtons(){const layout=currentDoc().layout;$$('[data-layout]').forEach(b=>{b.classList.toggle('selected',b.dataset.layout===layout);b.setAttribute('aria-pressed',b.dataset.layout===layout);});}
 $('#name').addEventListener('input',e=>{ensureOwn();doc.name=cleanText(e.target.value);commit();});
@@ -49,20 +53,20 @@ $$('[data-guide]').forEach(b=>b.onclick=()=>{
   guide=b.dataset.guide;
   $$('[data-guide]').forEach(x=>{x.classList.toggle('selected',x===b);x.setAttribute('aria-pressed',x===b);});
   $('#work-start-label').hidden=guide!=='school';
-  $('#guide-hint').textContent=guide==='age'?'0歳から現在までを1歳ずつ追加します。入力済みの記録はそのまま。':guide==='school'?'一般的な入学年齢が目安です。学年・年齢はあとで自由に直せます。':'指定した年齢の節目を追加します。';
+  $('#guide-hint').textContent=guide==='age'?'0歳から現在まで1歳ずつ追加します。':guide==='school'?'学校の学年と社会人の年数を追加します。':'指定した年齢の節目を追加します。';updateGuideNotice();
 });
 $('#apply-guide').onclick=()=>{
   try{
     const ageInput=$('#current-age'),workInput=$('#work-start');
     if(!ageInput.reportValidity()||(guide==='school'&&!workInput.reportValidity()))return;
     const generated=guideEvents(guide,Number(ageInput.value),Number(workInput.value));
-    const next=appendGuide(doc,generated),added=next.events.length-doc.events.length;
-    ensureOwn();doc=next;if(added)selectedId=doc.events.at(-added).id;persist();renderEditor();renderPreview();toast(added?`${added}件の節目を追加しました。できごとを書いてみましょう。`:'同じ年齢・区分の節目は、すでに追加されています。');
+    const next=appendGuide(doc,generated,{mode:guide}),added=next.events.length-doc.events.length;
+    ensureOwn();doc=next;if(added)selectedId=doc.events.at(-added).id;persist();renderEditor();renderPreview();toast(added?`${added}件の節目を追加しました。`:'同じ年齢・区分の節目は、すでに追加されています。');
   }catch(e){toast(e.message);}
 };
 $('#add-event').onclick=()=>{
-  if(doc.events.length>=MAX_EVENTS){toast(`節目は${MAX_EVENTS}件まで追加できます。`);return;}
-  ensureOwn();const e=event(sortedEvents(doc.events).at(-1)?.age??0);doc.events.push(e);selectedId=e.id;persist();renderEditor();renderPreview();
+  if(doc.events.length>=NORMAL_EVENT_LIMIT){toast(`節目は${NORMAL_EVENT_LIMIT}件までです。`);return;}
+  ensureOwn();const e=event(sortedEvents(doc.events).at(-1)?.age??0);doc=appendGuide(doc,[e],{mode:'manual'});selectedId=e.id;persist();renderEditor();renderPreview();
   const target=[...$('#event-list').children].find(el=>el.dataset.id===e.id);target?.querySelector('[data-field=title]')?.focus();
 };
 $('#event-list').addEventListener('click',e=>{
@@ -101,7 +105,7 @@ $('#event-list').addEventListener('input',e=>{
     record[field]=Number(e.target.value);
   }else record[field]=cleanText(e.target.value);
   item.querySelector('.event-toggle-body small').textContent=periodLabel(record);
-  item.querySelector('.event-toggle-body b').textContent=record.title||'どんなことがありましたか？';
+  item.querySelector('.event-toggle-body b').textContent=record.title||'未入力';
   item.querySelector('.event-score').textContent=record.score;
   item.querySelector('output').value=record.score;
   stopPlayback(true);commit();
@@ -116,8 +120,8 @@ function activePreviewId(list){
 }
 function updateBoardProgress(progress,activeId){
   if(!previewLayout)return;
-  const root=$('#chart'),trace=traceGeometry(previewLayout,progress),path=root.querySelector('[data-trace]'),tip=root.querySelector('[data-trace-tip]');
-  path?.setAttribute('d',trace.path);
+  const root=$('#chart'),trace=traceGeometry(previewLayout,progress),area=root.querySelector('[data-area]'),path=root.querySelector('[data-trace]'),tip=root.querySelector('[data-trace-tip]');
+  path?.setAttribute('d',trace.path);area?.setAttribute('d',trace.area);
   if(tip){tip.setAttribute('r',trace.tip?'8':'0');if(trace.tip){tip.setAttribute('cx',trace.tip.x);tip.setAttribute('cy',trace.tip.y);}}
   if(highlightedId!==activeId){
     root.querySelectorAll('[data-event-id]').forEach(el=>{
@@ -141,7 +145,7 @@ function renderPreview(){
   if(key!==previewKey){
     previewLayout=timelineLayout(d);previewKey=key;
     $('#chart').innerHTML=timelineSvg(d,{layout:previewLayout,selectedId:active,progress:playProgress,interactive:true});
-    highlightedId=active;$('#board-summary').textContent=`${list.length}件・${previewLayout.rows.length}段 / ${previewLayout.width}×${previewLayout.height}px`;applyZoom(false);
+    highlightedId=active;$('#board-summary').textContent=`${list.length}件 / ${previewLayout.width}×${previewLayout.height}px`;applyZoom(false);
   }
   updateBoardProgress(playProgress,active);$('#play').disabled=!list.length;
 }
@@ -162,8 +166,8 @@ $('#zoom-in').onclick=()=>{boardZoom=Math.min(1.8,boardZoom*1.25);applyZoom();};
 $('#zoom-out').onclick=()=>{boardZoom=Math.max(.08,boardZoom/1.25);applyZoom();};
 $('#zoom-readable').onclick=()=>{boardZoom=.85;applyZoom();};
 $('#zoom-fit').onclick=()=>{if(!previewLayout)return;const v=$('#board-viewport');boardZoom=Math.max(.001,Math.min(1,v.clientWidth/previewLayout.width,v.clientHeight/previewLayout.height));applyZoom();v.scrollTop=0;v.scrollLeft=0;};
-function stopPlayback(reset=false){cancelAnimationFrame(playRaf);playing=false;$('#play').textContent='▶';$('#play').setAttribute('aria-label','人生を再生');if(reset){playElapsed=0;playProgress=1;$('#play-label').textContent='年表を再生';$('#play-hint').textContent='折れ線を時系列にたどります。';}}
-function frame(now){playElapsed=now-playStart;const state=playbackTime(currentDoc().events.length,playElapsed);playProgress=state.progress;updateBoardProgress(playProgress,previewLayout?.points[playbackPosition(previewLayout.points.length,playProgress).index]?.id||'');if(!state.complete){playRaf=requestAnimationFrame(frame);}else{selectedId=previewLayout?.points.at(-1)?.id||null;stopPlayback();playElapsed=0;$('#play-label').textContent='再生が終了しました';$('#play-hint').textContent='もう一度再生できます。';}}
+function stopPlayback(reset=false){cancelAnimationFrame(playRaf);playing=false;$('#play').textContent='▶';$('#play').setAttribute('aria-label','年表を再生');if(reset){playElapsed=0;playProgress=1;$('#play-label').textContent='年表を再生';$('#play-hint').textContent='';}}
+function frame(now){playElapsed=now-playStart;const state=playbackTime(currentDoc().events.length,playElapsed);playProgress=state.progress;updateBoardProgress(playProgress,previewLayout?.points[playbackPosition(previewLayout.points.length,playProgress).index]?.id||'');if(!state.complete){playRaf=requestAnimationFrame(frame);}else{selectedId=previewLayout?.points.at(-1)?.id||null;stopPlayback();playElapsed=0;$('#play-label').textContent='再生が終了しました';$('#play-hint').textContent='';}}
 $('#play').onclick=()=>{
   if(playing){stopPlayback();$('#play-label').textContent='一時停止';return;}
   if(!currentDoc().events.length)return;
@@ -188,12 +192,12 @@ $('#confirm-dialog').addEventListener('close',()=>{pendingImport=null;pendingDel
 function refreshExport(){
   const layout=timelineLayout(exportDoc),svg=exportSvg(exportDoc),plan=rasterPlan(layout.width,layout.height);
   $('#export-preview').innerHTML=svg;
-  $('#raster-notice').textContent=plan.scaled?`PNGは安全なサイズ（${plan.width}×${plan.height}px）に縮小して一枚に保存します。文字を大きく読むには、拡大できるSVGがおすすめです。`:`${layout.width}×${layout.height}pxの一枚に、すべての思い出を保存します。SVGは拡大してもくっきり。`;
+  $('#raster-notice').textContent=plan.scaled?`PNG：${plan.width}×${plan.height}pxに縮小します。SVGは原寸を保持します。`:`${layout.width}×${layout.height}px。全${exportDoc.events.length}件を一枚に保存します。`;
   pngPromise=svgToCanvas(svg).then(canvasBlob);pngPromise.catch(()=>{});
 }
 $('#export-open').onclick=()=>{exportDoc=structuredClone(currentDoc());refreshExport();$('#export-dialog').showModal();};
-$('#png-save').onclick=async()=>{const b=$('#png-save');b.disabled=true;try{const blob=await pngPromise;download(blob,filename('png'));toast('すべての節目を、一枚のPNG画像に保存しました。');}catch(e){toast(e.message);}finally{b.disabled=false;}};
-$('#svg-save').onclick=()=>{download(new Blob([exportSvg(exportDoc)],{type:'image/svg+xml'}),filename('svg'));toast('すべての節目を、一枚のSVG画像に保存しました。');};
+$('#png-save').onclick=async()=>{const b=$('#png-save');b.disabled=true;try{const blob=await pngPromise;download(blob,filename('png'));toast('PNG画像を保存しました。');}catch(e){toast(e.message);}finally{b.disabled=false;}};
+$('#svg-save').onclick=()=>{download(new Blob([exportSvg(exportDoc)],{type:'image/svg+xml'}),filename('svg'));toast('SVG画像を保存しました。');};
 $('#share').onclick=async()=>{
   try{
     const blob=await pngPromise,file=new File([blob],filename('png'),{type:'image/png'});
@@ -209,7 +213,7 @@ $('#video-create').onclick=async()=>{
   videoController=new AbortController();
   try{
     const blob=await createVideo(snapshot,p=>$('#video-progress').value=p,videoController.signal);
-    if(videoUrl)URL.revokeObjectURL(videoUrl);videoBlob=blob;videoUrl=URL.createObjectURL(blob);$('#video-result').src=videoUrl;$('#video-result').hidden=false;$('#video-save').hidden=false;toast('動画ができました。プレビューを確認して保存できます。');
+    if(videoUrl)URL.revokeObjectURL(videoUrl);videoBlob=blob;videoUrl=URL.createObjectURL(blob);$('#video-result').src=videoUrl;$('#video-result').hidden=false;$('#video-save').hidden=false;toast('動画を作成しました。');
   }catch(e){if(e.name!=='AbortError')toast(e.message);}
   finally{videoController=null;$('#video-create').disabled=!videoMime();$('#video-create').textContent='動画を作成する';$('#video-progress').hidden=true;}
 };

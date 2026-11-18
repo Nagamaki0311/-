@@ -13,6 +13,8 @@
 | T-007 | 密集年表の折り返し配置・比率最適化 | 高 | 完了 | Designer / Developer |
 | T-008 | 一括削除・名前見出し・操作画面の整理 | 高 | 完了 | Developer |
 | T-009 | 年表を追う動画カメラ・検証・再公開 | 高 | 完了 | Developer / Reviewer / Manager |
+| T-010 | 左右に続くパノラマ年表・起伏表現・30件上限と年齢例外 | 高 | 完了 | Developer / Reviewer |
+| T-011 | 記号化・余白/書体/見出し/文言の監査と整理 | 高 | 完了 | Designer / Developer |
 
 ## バックログ
 

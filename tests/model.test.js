@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {emptyDocument,event,validateDocument,parseDocument,guideEvents,appendGuide,chartGeometry,sortedEvents,escapeXml,cleanText,timelineLayout,wrapText,rasterPlan,playbackPosition,playbackTime,documentHeading,periodLabel,removeEvents,restoreEvents,layoutSpecs} from '../model.js';
+import {NORMAL_EVENT_LIMIT,MAX_EVENTS,AGE_GUIDE_WARNING,emptyDocument,event,validateDocument,parseDocument,guideEvents,appendGuide,chartGeometry,sortedEvents,escapeXml,cleanText,timelineLayout,wrapText,rasterPlan,playbackPosition,playbackTime,documentHeading,periodLabel,removeEvents,restoreEvents,layoutSpecs} from '../model.js';
 import {exportSvg,timelineSvg,traceGeometry,drawVideoFrame,cameraState,cameraSchedule,cameraFrameSvg,videoAssetPlan} from '../export.js';
 
 test('JSON backups round-trip Unicode and negative scores without mutation',()=>{
@@ -70,35 +70,59 @@ function assertBoardGeometry(doc){
   return board;
 }
 
-test('dense guides fold into a readable single canvas at the selected aspect ratio',()=>{
-  for(const layout of ['wide','square','portrait']){
-    for(const amount of [0,1,6,27,100]){
-      const doc={...emptyDocument(),layout,events:Array.from({length:amount},(_,i)=>event(i,`${i}歳`,`できごと${i}`,i%11,'コメントを残します。'))};
-      const board=assertBoardGeometry(doc),svg=exportSvg(doc);
-      assert.ok(Math.abs(board.width/board.height-layoutSpecs[layout].ratio)<.002);
-      assert.equal((svg.match(/data-kind="bubble"/g)||[]).length,amount);
-      for(const row of board.rows){
-        const points=board.points.filter(point=>point.row===row.index);
-        assert.ok(points.length<=9,'each local chart must stay readable');
-        for(let i=1;i<points.length;i++)if(points[i].age>points[i-1].age)assert.ok(points[i].x-points[i-1].x>=67.9);
-      }
-      for(const bubble of board.bubbles){assert.equal(bubble.titleLines.join(''),bubble.title);assert.equal(bubble.commentLines.join(''),bubble.comment);}
-      assert.ok(!svg.includes('NaN'));
-      if(amount===27){assert.ok(board.rows.length>=3);assert.ok(board.width/board.height>layoutSpecs[layout].ratio*.99);}
-    }
+test('all image formats preserve a single readable panorama, even with 121 age events',()=>{
+  for(const amount of [0,1,6,30,121]){
+    const doc={...emptyDocument(),events:Array.from({length:amount},(_,i)=>event(i,`${i}歳`,`出来事${i}`,i%11,'コメントを残します。'))};
+    const board=assertBoardGeometry(doc),svg=exportSvg(doc);
+    for(const value of [board.width,board.height,board.box.x,board.box.y,board.box.width,board.box.height])assert.ok(Number.isFinite(value)&&value>0,'empty and populated board dimensions must be finite and positive');
+    assert.equal(board.rows.length,1);assert.equal(board.folded,false);assert.equal(board.panorama,true);
+    assert.equal((svg.match(/data-panorama-axis=/g)||[]).length,1);
+    assert.doesNotMatch(svg,/次の段へ|data-timeline-row|NaN|Infinity/);
+    assert.equal((svg.match(/data-kind="bubble"/g)||[]).length,amount);
+    assert.ok(board.box.height>=560,'the fixed score range has enough vertical room to show rises and falls');
+    for(let i=1;i<board.points.length;i++)assert.ok(board.points[i].x-board.points[i-1].x>=343.9,'normal yearly points must have readable separation');
+    for(const bubble of board.bubbles){assert.equal(bubble.titleLines.join(''),bubble.title);assert.equal(bubble.commentLines.join(''),bubble.comment);}
+    if(amount)assert.equal((traceGeometry(board,1).path.match(/M/g)||[]).length,1);
+    for(const layout of ['square','portrait'])assert.deepEqual(timelineLayout({...doc,layout}),board,'video aspect choices must not alter image layout');
   }
 });
-test('each folded row declares a truthful local age axis and never draws diagonal chart data across folds',()=>{
-  const doc={...emptyDocument(),events:[event(0),event(6),event(7),event(8),event(30),event(32),event(35)]};
+test('one numeric age axis preserves true intervals and fixed linear score values',()=>{
+  const doc={...emptyDocument(),events:[event(4,'','first',-10),event(5,'','second',0),event(30,'','last',10)]};
   const board=assertBoardGeometry(doc),svg=exportSvg(doc);
-  assert.ok(board.rows.length>1);
-  for(const row of board.rows){
-    const points=board.points.filter(point=>point.row===row.index);
-    for(const point of points){const expected=row.minAge===row.maxAge?row.box.x+row.box.width/2:row.box.x+(point.age-row.minAge)/(row.maxAge-row.minAge)*row.box.width;assert.equal(point.x,expected);}
-    assert.ok(svg.includes(`${row.minAge}〜${row.maxAge}歳`)||svg.includes(`${row.minAge}歳`));
+  const points=board.points;
+  assert.equal(points[0].row,0);assert.equal(points[2].row,0);
+  assert.ok(Math.abs((points[2].x-points[1].x)/(points[1].x-points[0].x)-25)<1e-9);
+  assert.equal(points[0].y,board.box.y+board.box.height);assert.equal(points[2].y,board.box.y);assert.equal(points[1].y,board.box.y+board.box.height/2);
+  assert.ok(svg.includes('4〜30歳'));assert.ok(svg.includes('−10')||svg.includes('-10'));
+  assert.match(svg,/stroke-width="6.5"/);assert.match(svg,/data-area=/);
+  assert.ok(!svg.includes('次の段へ'));
+});
+test('normal additions stop at 30 while age guide alone can append 121 and legacy data survives',()=>{
+  assert.equal(NORMAL_EVENT_LIMIT,30);assert.equal(MAX_EVENTS,121);assert.match(AGE_GUIDE_WARNING,/正常に表示・出力できない/);
+  let doc=emptyDocument();
+  for(let i=0;i<30;i++)doc=appendGuide(doc,[event(0)],{mode:'manual'});
+  assert.equal(doc.events.length,30,'same age and blank label manual entries are distinct records');
+  assert.equal(new Set(doc.events.map(record=>record.id)).size,30);
+  for(const mode of ['manual','turning','school'])assert.throws(()=>appendGuide(doc,[event(1,'new')],{mode}),/30/);
+  assert.throws(()=>appendGuide(emptyDocument(),guideEvents('school',40),{mode:'school'}),/30/);
+  const ages=appendGuide(emptyDocument(),guideEvents('age',120),{mode:'age'});
+  assert.equal(ages.events.length,121);assert.equal(parseDocument(JSON.stringify(ages)).events.length,121);
+  assert.throws(()=>appendGuide(ages,[event(0,'new')],{mode:'age'}),/121/);
+  const legacy={...emptyDocument(),events:Array.from({length:100},(_,i)=>event(i))};
+  const restored=parseDocument(JSON.stringify(legacy));assert.deepEqual(restored,legacy);
+  const removed=removeEvents(restored,restored.events.slice(0,80).map(record=>record.id));
+  assert.deepEqual(restoreEvents(removed.document,removed.removed),legacy,'undo restores legacy records above normal addition limit');
+  assert.throws(()=>appendGuide(restored,[event(100)],{mode:'manual'}),/30/);
+  assert.throws(()=>validateDocument({...legacy,events:Array.from({length:122},()=>event())}),/121/);
+});
+test('new and fully deleted documents export and animate finite empty states',()=>{
+  const before={...emptyDocument(),events:[event(0)]};
+  for(const doc of [emptyDocument(),removeEvents(before,[before.events[0].id]).document]){
+    const board=timelineLayout(doc),svg=exportSvg(doc),state=cameraState(board,0);
+    assert.equal(board.width,1600);assert.ok(board.box.width>1000);assert.match(svg,/width="1600"/);assert.doesNotMatch(svg,/NaN|Infinity/);
+    for(const number of [state.camera.x,state.camera.y,state.camera.width,state.camera.height])assert.ok(Number.isFinite(number));
+    assert.equal(state.index,-1);assert.equal(state.revealed,-1);assert.doesNotMatch(cameraFrameSvg(doc,0),/NaN|Infinity/);
   }
-  assert.equal((traceGeometry(board,1).path.match(/M/g)||[]).length,board.rows.filter(row=>row.eventIds.length).length);
-  assert.ok(svg.includes('次の段へ'));
 });
 test('same-age records remain distinct, with local non-overlapping cards and safe connectors',()=>{
   for(const layout of ['wide','square','portrait']){
@@ -118,7 +142,7 @@ test('long comments, wide Latin glyphs and names are retained without title-fiel
   assert.equal(periodLabel(event(6,'小学校1年生')),'6歳 / 小学校1年生');
   assert.ok(!svg.includes('以前の自由タイトル'));
   assert.equal(parseDocument(JSON.stringify(doc)).title,'以前の自由タイトル','legacy backup field is preserved');
-  assert.ok(board.rows[0].y>=72+board.titleLines.length*50);
+  assert.ok(board.headerHeight>=64+board.titleLines.length*50);
   for(const bubble of board.bubbles){assert.ok(bubble.titleLines.every(line=>Array.from(line).length*21<bubble.width-30));assert.equal(bubble.commentLines.join(''),bubble.comment.replaceAll('\n',''));}
   assert.equal(wrapText('\nW\n',10).join('\n'),'\nW\n');
 });
@@ -141,7 +165,7 @@ test('bulk delete and undo preserve records, original order and intervening addi
   assert.deepEqual(restoreEvents(restoreEvents(result.document,result.removed),result.removed).events,records,'undo is idempotent by ID');
   const all=removeEvents(doc,doc.events.map(record=>record.id));assert.equal(all.document.events.length,0);assert.deepEqual(restoreEvents(all.document,all.removed).events,records);
   assert.equal(removeEvents(doc,[]).removed.length,0);
-  assert.throws(()=>restoreEvents({...doc,events:Array.from({length:100},()=>event())},result.removed));
+  assert.throws(()=>restoreEvents({...doc,events:Array.from({length:121},()=>event())},result.removed));
 });
 test('interactive board exposes point and card controls, while export stays noninteractive',()=>{
   const doc={...emptyDocument(),events:[event(0),event(20)]},svg=timelineSvg(doc,{interactive:true,selectedId:doc.events[0].id});

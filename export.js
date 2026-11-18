@@ -1,42 +1,40 @@
 import {escapeXml as esc,layoutSpecs,timelineLayout,rasterPlan,playbackPosition,playbackTime} from './model.js';
-const INK='#172f44',RED='#f26654',PAPER='#fff9ec';
+const INK='#172f44',RED='#e95a46',PAPER='#fff9ec';
 const COLORS=['#ffe36c','#b9e6cb','#bddff6','#ffd0bc'];
-// ===== SECTION: Shared folded timeline renderer =====
+// ===== SECTION: Shared continuous panorama renderer =====
 function textLines(lines,x,y,size,{weight=400,fill=INK,lineHeight=size*1.5}={}) {
   return `<text x="${x}" y="${y}" font-size="${size}" font-weight="${weight}" fill="${fill}">${lines.map((line,i)=>`<tspan x="${x}" dy="${i?lineHeight:0}">${esc(line)}</tspan>`).join('')}</text>`;
 }
 export function traceGeometry(layout,progress=1) {
   const {points}=layout,{index,fraction}=playbackPosition(points.length,progress);
   const visible=points.slice(0,index+1).map(point=>({...point}));
-  if(points[index+1]){const a=points[index],b=points[index+1];if(a.row===b.row)visible.push({...b,x:a.x+(b.x-a.x)*fraction,y:a.y+(b.y-a.y)*fraction});}
-  const tip=visible.at(-1)||null;
-  return {path:visible.map((point,i)=>`${!i||point.row!==visible[i-1].row?'M':'L'}${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(' '),tip,index,visible};
+  if(points[index+1]){const a=points[index],b=points[index+1];visible.push({...b,x:a.x+(b.x-a.x)*fraction,y:a.y+(b.y-a.y)*fraction});}
+  const tip=visible.at(-1)||null,path=visible.map((point,i)=>`${i?'L':'M'}${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(' ');
+  const zeroY=layout.box.y+10/(10-layout.low)*layout.box.height;
+  const area=visible.length?`${path} L${tip.x} ${zeroY} L${visible[0].x} ${zeroY} Z`:'';
+  return {path,area,tip,index,visible};
 }
 export function timelineSvg(doc,{layout=timelineLayout(doc),interactive=false,selectedId='',progress=1,showLine=true,maxVisibleIndex=Infinity,showGhost=true}={}) {
-  const {width,height,pad,points,bubbles,low,rows}=layout,trace=traceGeometry(layout,progress);
-  const ticks=low<0?[10,5,0,-5,-10]:[10,5,0];
-  const rowArt=rows.map(row=>{
-    const box=row.box;
-    const ages=[...new Set(points.filter(point=>point.row===row.index).map(point=>point.age))];
-    const ageX=age=>row.minAge===row.maxAge?box.x+box.width/2:box.x+(age-row.minAge)/(row.maxAge-row.minAge)*box.width;
-    return `<g data-timeline-row="${row.index}"><text x="${pad}" y="${row.y+23}" font-size="20" font-weight="900" fill="${INK}">${rows.length>1?`${row.index+1} / ${rows.length}　`:''}${row.minAge===row.maxAge?row.minAge+'歳':row.minAge+'〜'+row.maxAge+'歳'}</text><text x="${width-pad}" y="${row.y+23}" text-anchor="end" font-size="15" fill="#65796d">人生の調子　${low}〜10</text><rect x="${box.x-25}" y="${box.y-12}" width="${box.width+50}" height="${box.height+48}" rx="9" fill="#fffdf6"/>${ticks.map(n=>{const y=box.y+(10-n)/(10-low)*box.height;return `<line x1="${box.x}" x2="${box.x+box.width}" y1="${y}" y2="${y}" stroke="#ccd5ca" stroke-dasharray="${n===0?'0':'5 7'}"/><text x="${box.x-28}" y="${y+6}" font-size="16" fill="#65796d">${n}</text>`;}).join('')}${ages.map(age=>`<text x="${ageX(age)}" y="${box.y+box.height+27}" text-anchor="middle" font-size="17" font-weight="700" fill="${INK}" stroke="${PAPER}" stroke-width="4" paint-order="stroke">${age}歳</text>`).join('')}${row.index<rows.length-1?`<path d="M${width-pad-140} ${row.y+row.height+7}h130l-9-6m9 6-9 6" fill="none" stroke="#82958a" stroke-width="2" stroke-dasharray="5 4"/><text x="${width-pad-150}" y="${row.y+row.height+12}" text-anchor="end" font-size="14" fill="#65796d">次の段へ</text>`:''}</g>`;
-  }).join('');
+  const {width,height,pad,points,bubbles,low,box,minAge,maxAge}=layout,trace=traceGeometry(layout,progress);
+  const ticks=low<0?[10,5,0,-5,-10]:[10,8,6,4,2,0],ages=[...new Set(points.map(point=>point.age))];
+  const ageX=age=>minAge===maxAge?width/2:box.x+(age-minAge)/(maxAge-minAge)*box.width;
+  const axes=`<g data-panorama-axis=""><text x="${pad}" y="${box.y-60}" font-size="18" font-weight="700" fill="${INK}">人生の調子</text><text x="${width-pad}" y="${box.y-60}" text-anchor="end" font-size="16" fill="#526860">${minAge===maxAge?minAge+'歳':minAge+'〜'+maxAge+'歳'}　/　${low}〜10</text><rect x="${box.x-25}" y="${box.y-12}" width="${box.width+50}" height="${box.height+52}" rx="6" fill="#fffdf7"/>${ticks.map(n=>{const y=box.y+(10-n)/(10-low)*box.height;return `<line x1="${box.x}" x2="${box.x+box.width}" y1="${y}" y2="${y}" stroke="${n===0?'#8da397':'#cdd8cd'}" stroke-width="${n===0?2:1}" stroke-dasharray="${n===0?'0':'5 8'}"/><text x="${box.x-16}" y="${y+6}" text-anchor="end" font-size="17" fill="#526860">${n}</text>`;}).join('')}${ages.map(age=>`<text x="${ageX(age)}" y="${box.y+box.height+32}" text-anchor="middle" font-size="18" font-weight="700" fill="${INK}" stroke="${PAPER}" stroke-width="4" paint-order="stroke">${age}歳</text>`).join('')}</g>`;
   const visibleBubbles=bubbles.filter(b=>b.index<=maxVisibleIndex);
   const connectors=visibleBubbles.map(b=>`<path data-connector="${esc(b.id)}" data-point-x="${b.point.x}" data-point-y="${b.point.y}" d="${b.connector.map((point,i)=>`${i?'L':'M'}${point.x} ${point.y}`).join(' ')}" fill="none" stroke="${['#947318','#467c65','#4b7c99','#ad614b'][b.index%4]}" stroke-width="1.7" stroke-linejoin="round" opacity=".72"/>`).join('');
   const cards=visibleBubbles.map(b=>{
     const color=COLORS[b.index%COLORS.length],active=b.id===selectedId;
     const periodY=b.y+31,periodBottom=periodY+(b.periodLines.length-1)*24,titleY=periodBottom+36,commentY=b.titleLines.length?titleY+(b.titleLines.length-1)*30+38:periodBottom+32;
-    const label=`${b.index+1}番目 ${b.age}歳 ${b.label} ${b.title||'できごと'} スコア${b.score}${b.comment?' '+b.comment:''}`;
-    return `<g class="timeline-event${active?' is-selected':''}" data-event-id="${esc(b.id)}" data-event-index="${b.index}" data-kind="bubble" ${interactive?`tabindex="0" role="button" aria-pressed="${active}" aria-label="${esc(label)}"`:''}><rect x="${b.x+3}" y="${b.y+4}" width="${b.width}" height="${b.height}" rx="10" fill="${INK}" opacity=".1"/><rect class="bubble-outline" x="${b.x}" y="${b.y}" width="${b.width}" height="${b.height}" rx="10" fill="${color}" stroke="${active?RED:INK}" stroke-width="${active?4:2}"/>${textLines(b.periodLines,b.x+20,periodY,16,{weight:700,lineHeight:24})}${b.titleLines.length?textLines(b.titleLines,b.x+20,titleY,21,{weight:900,lineHeight:30}):''}${b.commentLines.length?textLines(b.commentLines,b.x+20,commentY,18,{fill:'#314c56',lineHeight:26}):''}<circle cx="${b.x+12}" cy="${b.y-8}" r="17" fill="${INK}" stroke="${PAPER}" stroke-width="3"/><text x="${b.x+12}" y="${b.y-2}" text-anchor="middle" font-size="14" font-weight="900" fill="#fff">${String(b.index+1).padStart(2,'0')}</text><rect x="${b.x+b.width-60}" y="${b.y-12}" width="49" height="25" rx="6" fill="${RED}" stroke="${PAPER}" stroke-width="3"/><text x="${b.x+b.width-35}" y="${b.y+6}" text-anchor="middle" font-size="14" font-weight="900" fill="#fff">${b.score>0?'+':''}${b.score}</text></g>`;
+    const label=`節目${b.index+1} ${b.age}歳 ${b.label} ${b.title} スコア${b.score}${b.comment?' '+b.comment:''}`;
+    return `<g class="timeline-event${active?' is-selected':''}" data-event-id="${esc(b.id)}" data-event-index="${b.index}" data-kind="bubble" ${interactive?`tabindex="0" role="button" aria-pressed="${active}" aria-label="${esc(label)}"`:''}><rect x="${b.x+3}" y="${b.y+4}" width="${b.width}" height="${b.height}" rx="10" fill="${INK}" opacity=".1"/><rect class="bubble-outline" x="${b.x}" y="${b.y}" width="${b.width}" height="${b.height}" rx="10" fill="${color}" stroke="${active?RED:INK}" stroke-width="${active?4:2}"/>${textLines(b.periodLines,b.x+20,periodY,16,{weight:700,lineHeight:24})}${b.titleLines.length?textLines(b.titleLines,b.x+20,titleY,21,{weight:700,lineHeight:30}):''}${b.commentLines.length?textLines(b.commentLines,b.x+20,commentY,18,{fill:'#314c56',lineHeight:26}):''}<circle cx="${b.x+12}" cy="${b.y-8}" r="17" fill="${INK}" stroke="${PAPER}" stroke-width="3"/><text x="${b.x+12}" y="${b.y-2}" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">${String(b.index+1).padStart(2,'0')}</text><rect x="${b.x+b.width-60}" y="${b.y-12}" width="49" height="25" rx="6" fill="${RED}" stroke="${PAPER}" stroke-width="3"/><text x="${b.x+b.width-35}" y="${b.y+6}" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">${b.score>0?'+':''}${b.score}</text></g>`;
   }).join('');
   const seen=new Set();
   const marks=points.filter((point,index)=>index<=maxVisibleIndex).map((point,index)=>{
-    const key=`${point.row}:${point.x}:${point.y}`,duplicate=seen.has(key);seen.add(key);
-    return `<g class="timeline-point${point.id===selectedId?' is-selected':''}" data-event-id="${esc(point.id)}" data-kind="point" ${interactive?`tabindex="0" role="button" aria-pressed="${point.id===selectedId}" aria-label="節目${index+1}、${point.age}歳、${esc(point.title||point.label||'できごと')}、スコア${point.score}"`:''}><circle cx="${point.x}" cy="${point.y}" r="21" fill="${INK}" fill-opacity="0"/><circle class="point-core" cx="${point.x}" cy="${point.y}" r="7" fill="${COLORS[index%4]}" stroke="${INK}" stroke-width="2.5"/>${duplicate?'':`<text x="${point.x+12}" y="${point.y-13}" font-size="13" font-weight="900" fill="${INK}" stroke="${PAPER}" stroke-width="3" paint-order="stroke">${point.coincident>1?'同時期'+point.coincident+'件':String(index+1).padStart(2,'0')}</text>`}</g>`;
+    const key=`${point.x}:${point.y}`,duplicate=seen.has(key);seen.add(key);
+    const score=`${point.score>0?'+':''}${point.score}${point.coincident>1?' · '+point.coincident+'件':''}`;
+    return `<g class="timeline-point${point.id===selectedId?' is-selected':''}" data-event-id="${esc(point.id)}" data-kind="point" ${interactive?`tabindex="0" role="button" aria-pressed="${point.id===selectedId}" aria-label="節目${index+1}、${point.age}歳、${esc(point.title||point.label||'未入力')}、スコア${point.score}"`:''}><circle cx="${point.x}" cy="${point.y}" r="22" fill="${INK}" fill-opacity="0"/><circle class="point-core" cx="${point.x}" cy="${point.y}" r="9" fill="${COLORS[index%4]}" stroke="${INK}" stroke-width="3"/>${duplicate?'':`<text x="${point.x+15}" y="${point.y-16}" font-size="22" font-weight="700" fill="${INK}" stroke="${PAPER}" stroke-width="5" paint-order="stroke">${esc(score)}</text>`}</g>`;
   }).join('');
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="${interactive?'group':'img'}" aria-label="時期、できごと、コメントと折れ線を段ごとにつないだ人生年表" font-family="sans-serif"><rect width="${width}" height="${height}" rx="10" fill="${PAPER}"/><rect x="12" y="12" width="${width-24}" height="${height-24}" rx="8" fill="none" stroke="${INK}" stroke-width="3"/>${textLines(layout.titleLines,pad,66,38,{weight:900,lineHeight:50})}<path d="M${width-66} 36l5 11 12 2-9 8 2 12-10-6-10 6 2-12-9-8 12-2Z" fill="#ffe36c" stroke="${INK}" stroke-width="1.5"/>${rowArt}${connectors}${showGhost?`<path data-ghost-trace="" d="${traceGeometry(layout,1).path}" stroke="${RED}" stroke-width="4" opacity=".12" fill="none"/>`:''}<path data-trace="" d="${showLine?trace.path:''}" stroke="${RED}" stroke-width="4.5" stroke-linejoin="round" stroke-linecap="round" fill="none"/>${marks}${showLine&&trace.tip?`<circle data-trace-tip="" cx="${trace.tip.x}" cy="${trace.tip.y}" r="6" fill="${RED}" pointer-events="none"/>`:'<circle data-trace-tip="" cx="0" cy="0" r="0" fill="'+RED+'" pointer-events="none"/>'}${cards}${!points.length?textLines(['節目を追加すると、ここに年表が表示されます。'],pad,headerEmpty(layout),24,{fill:'#718477'}):''}<text x="${width-pad}" y="${height-23}" text-anchor="end" font-size="13" fill="#65796d">人生年表メーカー</text></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="${interactive?'group':'img'}" aria-label="時期、出来事、コメントと折れ線が左から右につながる人生年表" font-family="sans-serif"><rect width="${width}" height="${height}" rx="8" fill="${PAPER}"/><rect x="12" y="12" width="${width-24}" height="${height-24}" rx="6" fill="none" stroke="${INK}" stroke-width="3"/>${textLines(layout.titleLines,pad,66,38,{weight:700,lineHeight:50})}${axes}${showGhost?`<path data-ghost-trace="" d="${traceGeometry(layout,1).path}" stroke="${RED}" stroke-width="6.5" opacity=".1" fill="none"/>`:''}<path data-area="" d="${showLine?trace.area:''}" fill="${RED}" opacity=".08"/>${connectors}<path data-trace="" d="${showLine?trace.path:''}" stroke="${RED}" stroke-width="6.5" stroke-linejoin="round" stroke-linecap="round" fill="none"/>${marks}${showLine&&trace.tip?`<circle data-trace-tip="" cx="${trace.tip.x}" cy="${trace.tip.y}" r="8" fill="${RED}" pointer-events="none"/>`:'<circle data-trace-tip="" cx="0" cy="0" r="0" fill="'+RED+'" pointer-events="none"/>'}${cards}${!points.length?textLines(['節目を追加すると年表が表示されます。'],pad,box.y+80,24,{fill:'#526860'}):''}<text x="${width-pad}" y="${height-23}" text-anchor="end" font-size="13" fill="#526860">人生年表メーカー</text></svg>`;
 }
-function headerEmpty(layout){return layout.rows[0].box.y+80;}
 export function exportSvg(doc) {return timelineSvg(doc);}
 // ===== SECTION: Bounded browser-local PNG rasterization =====
 export async function svgToCanvas(svg,{maxDimension=8192,maxPixels=16000000}={}) {
@@ -112,21 +110,27 @@ export function drawVideoFrame(ctx,layout,assets,elapsed){
   ctx.fillStyle=PAPER;ctx.fillRect(0,0,width,height);ctx.save();ctx.scale(scale,scale);ctx.translate(-camera.x,-camera.y);
   // A clean, card-free board is cached once. Only reached events are drawn as individual cached cards.
   ctx.drawImage(assets.base,0,0,layout.width,layout.height);
+  const trace=traceGeometry(layout,state.progress);
+  if(trace.visible.length){
+    const zeroY=layout.box.y+10/(10-layout.low)*layout.box.height;ctx.save();ctx.globalAlpha=.08;ctx.fillStyle=RED;ctx.beginPath();
+    trace.visible.forEach((point,i)=>i?ctx.lineTo(point.x,point.y):ctx.moveTo(point.x,point.y));
+    ctx.lineTo(trace.tip.x,zeroY);ctx.lineTo(trace.visible[0].x,zeroY);ctx.fill();ctx.restore();
+  }
   for(let i=0;i<=state.revealed;i++){
     const bubble=layout.bubbles[i],image=assets.cards[i];if(!bubble||!image)continue;
     ctx.drawImage(image,bubble.x-23,bubble.y-27,bubble.width+49,bubble.height+33);
     ctx.beginPath();bubble.connector.forEach((point,j)=>j?ctx.lineTo(point.x,point.y):ctx.moveTo(point.x,point.y));ctx.strokeStyle=['#947318','#467c65','#4b7c99','#ad614b'][i%4];ctx.lineWidth=1.7;ctx.stroke();
   }
-  const trace=traceGeometry(layout,state.progress);ctx.beginPath();
-  for(const [i,point]of trace.visible.entries()){if(!i||point.row!==trace.visible[i-1].row)ctx.moveTo(point.x,point.y);else ctx.lineTo(point.x,point.y);}
-  ctx.strokeStyle=RED;ctx.lineWidth=4.5;ctx.lineCap='round';ctx.lineJoin='round';ctx.stroke();
+  ctx.beginPath();
+  for(const [i,point]of trace.visible.entries()){if(!i)ctx.moveTo(point.x,point.y);else ctx.lineTo(point.x,point.y);}
+  ctx.strokeStyle=RED;ctx.lineWidth=6.5;ctx.lineCap='round';ctx.lineJoin='round';ctx.stroke();
   if(trace.tip){ctx.beginPath();ctx.arc(trace.tip.x,trace.tip.y,7,0,Math.PI*2);ctx.fillStyle=RED;ctx.fill();}
   const seen=new Set();
   for(let i=0;i<=state.revealed;i++){
     const point=layout.points[i];if(!point)continue;
-    const key=`${point.row}:${point.x}:${point.y}`,duplicate=seen.has(key);seen.add(key);
-    ctx.beginPath();ctx.arc(point.x,point.y,7,0,Math.PI*2);ctx.fillStyle=COLORS[i%4];ctx.fill();ctx.strokeStyle=INK;ctx.lineWidth=2.5;ctx.stroke();
-    if(!duplicate){const label=point.coincident>1?'同時期'+point.coincident+'件':String(i+1).padStart(2,'0');ctx.font='900 13px sans-serif';ctx.strokeStyle=PAPER;ctx.lineWidth=3;ctx.strokeText(label,point.x+12,point.y-13);ctx.fillStyle=INK;ctx.fillText(label,point.x+12,point.y-13);}
+    const key=`${point.x}:${point.y}`,duplicate=seen.has(key);seen.add(key);
+    ctx.beginPath();ctx.arc(point.x,point.y,9,0,Math.PI*2);ctx.fillStyle=COLORS[i%4];ctx.fill();ctx.strokeStyle=INK;ctx.lineWidth=3;ctx.stroke();
+    if(!duplicate){const label=`${point.score>0?'+':''}${point.score}${point.coincident>1?' · '+point.coincident+'件':''}`;ctx.font='700 22px sans-serif';ctx.strokeStyle=PAPER;ctx.lineWidth=5;ctx.strokeText(label,point.x+15,point.y-16);ctx.fillStyle=INK;ctx.fillText(label,point.x+15,point.y-16);}
   }
   ctx.restore();return state;
 }

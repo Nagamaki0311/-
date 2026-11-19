@@ -1,5 +1,5 @@
 import {BIRTH_ANCHOR_ID,NORMAL_EVENT_LIMIT,AGE_GUIDE_WARNING,STORAGE_KEY,emptyDocument,sampleDocument,event,sortedEvents,parseDocument,guideEvents,appendGuide,escapeXml,cleanText,timelineLayout,rasterPlan,playbackPosition,playbackTime,documentHeading,periodLabel,removeEvents,restoreEvents} from './model.js';
-import {timelineSvg,traceGeometry,exportSvg,svgToCanvas,canvasBlob,videoMime,createVideo,cameraSchedule} from './export.js';
+import {timelineSvg,traceGeometry,traceSegments,exportSvg,svgToCanvas,canvasBlob,videoMime,createVideo,cameraSchedule} from './export.js';
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)], esc=escapeXml;
 let doc=emptyDocument(),sample=sampleDocument(),showingSample=true,selectedId=null,guide='turning',toastTimer,undo=null;
 let playRaf=0,playStart=0,playElapsed=0,playing=false,playProgress=1;
@@ -121,12 +121,15 @@ function activePreviewId(list){
 function updateBoardProgress(progress,activeId){
   if(!previewLayout)return;
   const root=$('#chart'),trace=traceGeometry(previewLayout,progress),area=root.querySelector('[data-area]'),path=root.querySelector('[data-trace]'),tip=root.querySelector('[data-trace-tip]');
-  path?.setAttribute('d',trace.path);area?.setAttribute('d',trace.area);
+  const segments=root.querySelector('[data-trace-segments]');
+  const design=previewLayout.design;
+  path?.setAttribute('d',design==='E'?'':trace.path);area?.setAttribute('d',trace.area);
+  if(segments&&design==='E')segments.innerHTML=traceSegments(trace.visible,design);
   if(tip){tip.setAttribute('r',trace.tip?'8':'0');if(trace.tip){tip.setAttribute('cx',trace.tip.x);tip.setAttribute('cy',trace.tip.y);}}
   if(highlightedId!==activeId){
     root.querySelectorAll('[data-event-id][role=button]').forEach(el=>{
       const active=el.dataset.eventId===activeId;el.classList.toggle('is-selected',active);el.setAttribute('aria-pressed',active);
-      const outline=el.querySelector('.bubble-outline');if(outline){outline.setAttribute('stroke',active?'#f26654':'#172f44');outline.setAttribute('stroke-width',active?'4':'2.5');}
+      const outline=el.querySelector('.bubble-outline');if(outline){outline.setAttribute('stroke',active?outline.dataset.activeBorder:outline.dataset.border);outline.setAttribute('stroke-width',active?'4':'2.5');}
     });
     highlightedId=activeId;
   }
@@ -143,6 +146,9 @@ function renderPreview(){
   const d=currentDoc(),key=JSON.stringify(d),list=sortedEvents(d.events);
   if(key!==previewKey)previewLayout=timelineLayout(d);
   const active=activePreviewId(previewLayout.points);
+  for(const button of $$('[data-output-design]')){
+    button.setAttribute('aria-pressed',String(button.dataset.outputDesign===(d.design||'A')));
+  }
   $('#sample-badge').hidden=!showingSample;
   if(key!==previewKey){
     previewKey=key;
@@ -150,6 +156,15 @@ function renderPreview(){
     highlightedId=active;$('#board-summary').textContent=`${list.length}件 / ${previewLayout.width}×${previewLayout.height}px`;applyZoom(false);
   }
   updateBoardProgress(playProgress,active);$('#play').disabled=!list.length;
+}
+for(const button of $$('[data-output-design]')){
+  button.onclick=()=>{
+    const current=currentDoc();
+    if(current.design===button.dataset.outputDesign)return;
+    current.design=button.dataset.outputDesign;
+    if(!showingSample)persist();
+    renderPreview();
+  };
 }
 function revealEvent(id){
   const bubble=previewLayout?.bubbles.find(b=>b.id===id);if(!bubble)return;
@@ -208,7 +223,11 @@ $('#share').onclick=async()=>{
   }catch(e){if(e.name!=='AbortError')toast('共有できませんでした。「PNGで保存」から画像を保存してSNSに添付してください。');}
 };
 // ===== SECTION: Video creation and cleanup =====
-$('#video-open').onclick=()=>{const mime=videoMime(),duration=Math.ceil(cameraSchedule(timelineLayout(currentDoc())).duration/1000);$('#video-duration').textContent=`約${duration}秒。コメントの長さに合わせて各節目で停止します。`; $('#video-support').textContent=mime?`このブラウザで作成する形式：${mime.includes('mp4')?'MP4':'WebM'}。${showingSample?'現在はサンプルの年表です。':''}`:'このブラウザでは動画作成に対応していません。PNGまたはSVGで保存できます。';$('#video-create').disabled=!mime;$('#video-dialog').showModal();};
+$('#video-open').onclick=()=>{
+  if(videoUrl)URL.revokeObjectURL(videoUrl);
+  videoBlob=null;videoUrl=null;
+  $('#video-result').removeAttribute('src');$('#video-result').hidden=true;$('#video-save').hidden=true;
+  const mime=videoMime(),duration=Math.ceil(cameraSchedule(timelineLayout(currentDoc())).duration/1000);$('#video-duration').textContent=`約${duration}秒。コメントの長さに合わせて各節目で停止します。`; $('#video-support').textContent=mime?`このブラウザで作成する形式：${mime.includes('mp4')?'MP4':'WebM'}。${showingSample?'現在はサンプルの年表です。':''}`:'このブラウザでは動画作成に対応していません。PNGまたはSVGで保存できます。';$('#video-create').disabled=!mime;$('#video-dialog').showModal();};
 $('#video-create').onclick=async()=>{
   if(!currentDoc().events.length){toast('動画にする節目を、ひとつ以上追加してください。');return;}
   const snapshot=structuredClone(currentDoc());$('#video-create').disabled=true;$('#video-create').textContent='動画を作成しています…';$('#video-progress').hidden=false;$('#video-progress').value=0;$('#video-save').hidden=true;

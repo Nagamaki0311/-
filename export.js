@@ -1,9 +1,30 @@
 import {BIRTH_ANCHOR_ID,escapeXml as esc,layoutSpecs,timelineLayout,rasterPlan,playbackPosition,playbackTime} from './model.js';
-const INK='#172f44',RED='#e95a46',PAPER='#fff9ec';
-const COLORS=['#ffe36c','#b9e6cb','#bddff6','#ffd0bc'];
+const sans = 'system-ui, sans-serif';
+const serif = 'Noto Serif CJK JP, Hiragino Mincho ProN, Yu Mincho, serif';
+const designs = {
+  A: {paper:'#ffffff', plot:'#ffffff', ink:'#14171c', line:'#2456d3', grid:'#dde2e7', edge:'#c9d2e0', muted:'#505a65', cards:['#f8fafd'], radius:4, font:sans, shadow:false, opacity:.10, weight:700},
+  B: {paper:'#101824', plot:'#101824', ink:'#f5f7fa', line:'#ffce61', grid:'#34465c', edge:'#526680', muted:'#b9c6d8', cards:['#1c293a'], radius:6, font:sans, shadow:false, opacity:.11, weight:700},
+  C: {paper:'#ecf4f2', plot:'#ecf4f2', ink:'#15302b', line:'#15785e', grid:'#bbccc6', edge:'#a2bfb3', muted:'#45635a', cards:['#fafffd'], radius:0, font:serif, shadow:false, opacity:.13, weight:700},
+  D: {paper:'#eff5ff', plot:'#ffffff', ink:'#221344', line:'#db2169', grid:'#c5cfe3', edge:'#382567', muted:'#49376b', cards:['#fff36a','#9cefff','#ffc3eb','#bdf084'], radius:14, font:sans, shadow:true, opacity:.10, weight:900},
+  E: {paper:'#101719', plot:'#131e21', ink:'#e2f0ef', line:'#55df9a', down:'#ff7d86', grid:'#2e4547', edge:'#597377', muted:'#a7c0bf', cards:['#172528'], radius:0, font:'ui-monospace, monospace', shadow:false, opacity:0, weight:700}
+};
+function outputDesign(id) {return Object.hasOwn(designs,id) ? designs[id] : designs.A;}
+
+function segmentColor(design, previous, next) {
+  return design.down && next.y > previous.y ? design.down : design.line;
+}
+
+export function traceSegments(points, designId) {
+  const design = outputDesign(designId);
+  if (!design.down) return '';
+  return points.slice(1).map((point, i) => {
+    const previous = points[i];
+    return `<path d="M${previous.x} ${previous.y} L${point.x} ${point.y}" stroke="${segmentColor(design,previous,point)}" stroke-width="6.5" stroke-linecap="round" fill="none"/>`;
+  }).join('');
+}
 // ===== SECTION: Shared continuous panorama renderer =====
-function textLines(lines,x,y,size,{weight=400,fill=INK,lineHeight=size*1.5}={}) {
-  return `<text x="${x}" y="${y}" font-size="${size}" font-weight="${weight}" fill="${fill}">${lines.map((line,i)=>`<tspan x="${x}" dy="${i?lineHeight:0}">${esc(line)}</tspan>`).join('')}</text>`;
+function textLines(lines,x,y,size,{weight=400,fill,lineHeight=size*1.5}={}) {
+  return `<text x="${x}" y="${y}" font-size="${size}" font-weight="${weight}"${fill?` fill="${fill}"`:''}>${lines.map((line,i)=>`<tspan x="${x}" dy="${i?lineHeight:0}">${esc(line)}</tspan>`).join('')}</text>`;
 }
 export function traceGeometry(layout,progress=1) {
   const {points}=layout,{index,fraction}=playbackPosition(points.length,progress);
@@ -16,26 +37,27 @@ export function traceGeometry(layout,progress=1) {
 }
 export function timelineSvg(doc,{layout=timelineLayout(doc),interactive=false,selectedId='',progress=1,showLine=true,maxVisibleIndex=Infinity,showGhost=true}={}) {
   const {width,height,pad,points,bubbles,low,box,minAge,maxAge}=layout,trace=traceGeometry(layout,progress);
+  const design=outputDesign(doc.design), {ink:INK,line:RED,paper:PAPER,cards:COLORS}=design;
   const ticks=low<0?[10,5,0,-5,-10]:[10,8,6,4,2,0];
   const ages=new Map(points.map(point=>[point.age,point.x]));
   const gapY=box.y+box.height+29;
   const gapMarkers=layout.breaks.map(({x,from,to})=>`<g data-age-break="" role="img" aria-label="${from}歳から${to}歳までの間隔を短縮"><rect x="${x-20}" y="${gapY-15}" width="40" height="22" fill="${PAPER}"/><path d="M${x-12} ${gapY+5}l9 -18m5 18l9 -18" stroke="${INK}" stroke-width="3"/></g>`).join('');
-  const axes=`<g data-panorama-axis=""><text x="${pad}" y="${box.y-60}" font-size="18" font-weight="700" fill="${INK}">人生の調子</text><text x="${width-pad}" y="${box.y-60}" text-anchor="end" font-size="16" fill="#526860">${minAge===maxAge?minAge+'歳':minAge+'〜'+maxAge+'歳'}　/　${low}〜10</text><rect x="${box.x-25}" y="${box.y-12}" width="${box.width+50}" height="${box.height+52}" rx="6" fill="#fffdf7"/>${ticks.map(n=>{const y=box.y+(10-n)/(10-low)*box.height;return `<line x1="${box.x}" x2="${box.x+box.width}" y1="${y}" y2="${y}" stroke="${n===0?'#8da397':'#cdd8cd'}" stroke-width="${n===0?2:1}" stroke-dasharray="${n===0?'0':'5 8'}"/><text x="${box.x-16}" y="${y+6}" text-anchor="end" font-size="17" fill="#526860">${n}</text>`;}).join('')}${[...ages].map(([age,x])=>`<text x="${x}" y="${box.y+box.height+32}" text-anchor="middle" font-size="18" font-weight="700" fill="${INK}" stroke="${PAPER}" stroke-width="4" paint-order="stroke">${age}歳</text>`).join('')}${gapMarkers}</g>`;
+  const axes=`<g data-panorama-axis=""><text x="${pad}" y="${box.y-60}" font-size="18" font-weight="700" fill="${INK}">人生の調子</text><text x="${width-pad}" y="${box.y-60}" text-anchor="end" font-size="16" fill="${design.muted}">${minAge===maxAge?minAge+'歳':minAge+'〜'+maxAge+'歳'}　/　${low}〜10</text><rect x="${box.x-25}" y="${box.y-12}" width="${box.width+50}" height="${box.height+52}" rx="6" fill="${design.plot}"/>${ticks.map(n=>{const y=box.y+(10-n)/(10-low)*box.height;return `<line x1="${box.x}" x2="${box.x+box.width}" y1="${y}" y2="${y}" stroke="${n===0?design.edge:design.grid}" stroke-width="${n===0?2:1}" stroke-dasharray="${n===0||design.down?'0':'5 8'}"/><text x="${box.x-16}" y="${y+6}" text-anchor="end" font-size="17" fill="${design.muted}">${n}</text>`;}).join('')}${design.down?[...ages.values()].map(x=>`<line x1="${x}" x2="${x}" y1="${box.y}" y2="${box.y+box.height}" stroke="${design.grid}"/>`).join(''):''}${[...ages].map(([age,x])=>`<text x="${x}" y="${box.y+box.height+32}" text-anchor="middle" font-size="18" font-weight="700" fill="${INK}" stroke="${PAPER}" stroke-width="4" paint-order="stroke">${age}歳</text>`).join('')}${gapMarkers}</g>`;
   const visibleBubbles=bubbles.filter(b=>b.index<=maxVisibleIndex);
-  const connectors=visibleBubbles.map(b=>`<path data-connector="${esc(b.id)}" data-point-x="${b.point.x}" data-point-y="${b.point.y}" d="${b.connector.map((point,i)=>`${i?'L':'M'}${point.x} ${point.y}`).join(' ')}" fill="none" stroke="${['#947318','#467c65','#4b7c99','#ad614b'][b.index%4]}" stroke-width="1.7" stroke-linejoin="round" opacity=".72"/>`).join('');
+  const connectors=visibleBubbles.map(b=>`<path data-connector="${esc(b.id)}" data-point-x="${b.point.x}" data-point-y="${b.point.y}" d="${b.connector.map((point,i)=>`${i?'L':'M'}${point.x} ${point.y}`).join(' ')}" fill="none" stroke="${design.edge}" stroke-width="1.7" stroke-linejoin="round" opacity=".72"/>`).join('');
   const cards=visibleBubbles.map(b=>{
     const color=COLORS[b.index%COLORS.length],active=b.id===selectedId;
     const periodY=b.y+31,periodBottom=periodY+(b.periodLines.length-1)*24,titleY=periodBottom+36,commentY=b.titleLines.length?titleY+(b.titleLines.length-1)*30+38:periodBottom+32;
     const label=`節目${b.index+1} ${b.age}歳 ${b.label} ${b.title} スコア${b.score}${b.comment?' '+b.comment:''}`;
-    return `<g class="timeline-event${active?' is-selected':''}" data-event-id="${esc(b.id)}" data-event-index="${b.index}" data-kind="bubble" ${interactive&&b.id!==BIRTH_ANCHOR_ID?`tabindex="0" role="button" aria-pressed="${active}" aria-label="${esc(label)}"`:''}><rect x="${b.x+3}" y="${b.y+4}" width="${b.width}" height="${b.height}" rx="10" fill="${INK}" opacity=".1"/><rect class="bubble-outline" x="${b.x}" y="${b.y}" width="${b.width}" height="${b.height}" rx="10" fill="${color}" stroke="${active?RED:INK}" stroke-width="${active?4:2}"/>${textLines(b.periodLines,b.x+20,periodY,16,{weight:700,lineHeight:24})}${b.titleLines.length?textLines(b.titleLines,b.x+20,titleY,21,{weight:700,lineHeight:30}):''}${b.commentLines.length?textLines(b.commentLines,b.x+20,commentY,18,{fill:'#314c56',lineHeight:26}):''}</g>`;
+    return `<g class="timeline-event${active?' is-selected':''}" data-event-id="${esc(b.id)}" data-event-index="${b.index}" data-kind="bubble" ${interactive&&b.id!==BIRTH_ANCHOR_ID?`tabindex="0" role="button" aria-pressed="${active}" aria-label="${esc(label)}"`:''}>${design.shadow?`<rect x="${b.x+5}" y="${b.y+6}" width="${b.width}" height="${b.height}" rx="${design.radius}" fill="${INK}"/>`:''}<rect class="bubble-outline" x="${b.x}" y="${b.y}" width="${b.width}" height="${b.height}" rx="${design.radius}" fill="${color}" data-border="${design.edge}" data-active-border="${RED}" stroke="${active?RED:design.edge}" stroke-width="${active?4:2}"/>${textLines(b.periodLines,b.x+20,periodY,16,{weight:700,lineHeight:24})}${b.titleLines.length?textLines(b.titleLines,b.x+20,titleY,21,{weight:700,lineHeight:30}):''}${b.commentLines.length?textLines(b.commentLines,b.x+20,commentY,18,{fill:design.muted,lineHeight:26}):''}</g>`;
   }).join('');
   const seen=new Set();
   const marks=points.filter((point,index)=>index<=maxVisibleIndex).map((point,index)=>{
     const key=`${point.x}:${point.y}`,duplicate=seen.has(key);seen.add(key);
     const score=`${point.score>0?'+':''}${point.score}${point.coincident>1?' · '+point.coincident+'件':''}`;
-    return `<g class="timeline-point${point.id===selectedId?' is-selected':''}" data-event-id="${esc(point.id)}" data-kind="point" ${interactive&&point.id!==BIRTH_ANCHOR_ID?`tabindex="0" role="button" aria-pressed="${point.id===selectedId}" aria-label="節目${index+1}、${point.age}歳、${esc(point.title||point.label||'未入力')}、スコア${point.score}"`:''}><circle cx="${point.x}" cy="${point.y}" r="22" fill="${INK}" fill-opacity="0"/><circle class="point-core" cx="${point.x}" cy="${point.y}" r="9" fill="${COLORS[index%4]}" stroke="${INK}" stroke-width="3"/>${duplicate||point.id===BIRTH_ANCHOR_ID?'':`<text x="${point.x+15}" y="${point.y-16}" font-size="22" font-weight="700" fill="${INK}" stroke="${PAPER}" stroke-width="5" paint-order="stroke">${esc(score)}</text>`}</g>`;
+    return `<g class="timeline-point${point.id===selectedId?' is-selected':''}" data-event-id="${esc(point.id)}" data-kind="point" ${interactive&&point.id!==BIRTH_ANCHOR_ID?`tabindex="0" role="button" aria-pressed="${point.id===selectedId}" aria-label="節目${index+1}、${point.age}歳、${esc(point.title||point.label||'未入力')}、スコア${point.score}"`:''}><circle cx="${point.x}" cy="${point.y}" r="22" fill="${INK}" fill-opacity="0"/><circle class="point-core" cx="${point.x}" cy="${point.y}" r="9" fill="${COLORS[index%COLORS.length]}" stroke="${INK}" stroke-width="3"/>${duplicate||point.id===BIRTH_ANCHOR_ID?'':`<text x="${point.x+15}" y="${point.y-16}" font-size="22" font-weight="700" fill="${INK}" stroke="${PAPER}" stroke-width="5" paint-order="stroke">${esc(score)}</text>`}</g>`;
   }).join('');
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="${interactive?'group':'img'}" aria-label="時期、出来事、コメントと折れ線が左から右につながる人生年表" font-family="sans-serif"><rect width="${width}" height="${height}" rx="8" fill="${PAPER}"/><rect x="12" y="12" width="${width-24}" height="${height-24}" rx="6" fill="none" stroke="${INK}" stroke-width="3"/>${textLines(layout.titleLines,pad,66,38,{weight:700,lineHeight:50})}${axes}${showGhost?`<path data-ghost-trace="" d="${traceGeometry(layout,1).path}" stroke="${RED}" stroke-width="6.5" opacity=".1" fill="none"/>`:''}<path data-area="" d="${showLine?trace.area:''}" fill="${RED}" opacity=".08"/>${connectors}<path data-trace="" d="${showLine?trace.path:''}" stroke="${RED}" stroke-width="6.5" stroke-linejoin="round" stroke-linecap="round" fill="none"/>${marks}${showLine&&trace.tip?`<circle data-trace-tip="" cx="${trace.tip.x}" cy="${trace.tip.y}" r="8" fill="${RED}" pointer-events="none"/>`:'<circle data-trace-tip="" cx="0" cy="0" r="0" fill="'+RED+'" pointer-events="none"/>'}${cards}${!points.length?textLines(['節目を追加すると年表が表示されます。'],pad,box.y+80,24,{fill:'#526860'}):''}<text x="${width-pad}" y="${height-23}" text-anchor="end" font-size="13" fill="#526860">人生年表メーカー</text></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="${interactive?'group':'img'}" aria-label="時期、出来事、コメントと折れ線が左から右につながる人生年表" font-family="${design.font}" fill="${INK}" data-design="${esc(doc.design||'A')}"><rect width="${width}" height="${height}" rx="8" fill="${PAPER}"/>${design.shadow?`<rect x="12" y="12" width="${width-24}" height="${height-24}" rx="6" fill="none" stroke="${INK}" stroke-width="3"/>`:''}${textLines(layout.titleLines,pad,66,38,{weight:design.weight,lineHeight:50})}${axes}${showGhost?`<path data-ghost-trace="" d="${traceGeometry(layout,1).path}" stroke="${RED}" stroke-width="6.5" opacity=".1" fill="none"/>`:''}<path data-area="" d="${showLine?trace.area:''}" fill="${RED}" opacity="${design.opacity}"/>${connectors}<path data-trace="" d="${showLine&&!design.down?trace.path:''}" stroke="${RED}" stroke-width="6.5" stroke-linejoin="round" stroke-linecap="round" fill="none"/><g data-trace-segments="">${showLine?traceSegments(trace.visible,doc.design):''}</g>${marks}${showLine&&trace.tip?`<circle data-trace-tip="" cx="${trace.tip.x}" cy="${trace.tip.y}" r="8" fill="${RED}" pointer-events="none"/>`:'<circle data-trace-tip="" cx="0" cy="0" r="0" fill="'+RED+'" pointer-events="none"/>'}${cards}${!points.length?textLines(['節目を追加すると年表が表示されます。'],pad,box.y+80,24,{fill:design.muted}):''}</svg>`;
 }
 export function exportSvg(doc) {return timelineSvg(doc);}
 // ===== SECTION: Bounded browser-local PNG rasterization =====
@@ -103,36 +125,43 @@ export function videoAssetPlan(layout,{maxPixels=32000000}={}){
 }
 export function cameraFrameSvg(doc,elapsed,{aspect=1.6,width=1280,height=Math.round(width/aspect)}={}){
   const layout=timelineLayout(doc),state=cameraState(layout,elapsed,aspect),camera=state.camera;
+  const PAPER=outputDesign(doc.design).paper;
   const board=timelineSvg(doc,{layout,progress:state.progress,maxVisibleIndex:state.revealed,showGhost:false});
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${camera.x} ${camera.y} ${camera.width} ${camera.height}"><rect x="${camera.x}" y="${camera.y}" width="${camera.width}" height="${camera.height}" fill="${PAPER}"/>${board}</svg>`;
 }
 export function drawVideoFrame(ctx,layout,assets,elapsed){
   const {width,height}=ctx.canvas,state=cameraState(layout,elapsed,width/height),camera=state.camera;
   const scale=width/camera.width;
+  const design=outputDesign(layout.design),{ink:INK,line:RED,paper:PAPER,cards:COLORS}=design;
   ctx.fillStyle=PAPER;ctx.fillRect(0,0,width,height);ctx.save();ctx.scale(scale,scale);ctx.translate(-camera.x,-camera.y);
   // A clean, card-free board is cached once. Only reached events are drawn as individual cached cards.
   ctx.drawImage(assets.base,0,0,layout.width,layout.height);
   const trace=traceGeometry(layout,state.progress);
   if(trace.visible.length){
-    const zeroY=layout.box.y+10/(10-layout.low)*layout.box.height;ctx.save();ctx.globalAlpha=.08;ctx.fillStyle=RED;ctx.beginPath();
+    const zeroY=layout.box.y+10/(10-layout.low)*layout.box.height;ctx.save();ctx.globalAlpha=design.opacity;ctx.fillStyle=RED;ctx.beginPath();
     trace.visible.forEach((point,i)=>i?ctx.lineTo(point.x,point.y):ctx.moveTo(point.x,point.y));
     ctx.lineTo(trace.tip.x,zeroY);ctx.lineTo(trace.visible[0].x,zeroY);ctx.fill();ctx.restore();
   }
   for(let i=0;i<=state.revealed;i++){
     const bubble=layout.bubbles[i],image=assets.cards[i];if(!bubble||!image)continue;
     ctx.drawImage(image,bubble.x-23,bubble.y-27,bubble.width+49,bubble.height+33);
-    ctx.beginPath();bubble.connector.forEach((point,j)=>j?ctx.lineTo(point.x,point.y):ctx.moveTo(point.x,point.y));ctx.strokeStyle=['#947318','#467c65','#4b7c99','#ad614b'][i%4];ctx.lineWidth=1.7;ctx.stroke();
+    ctx.beginPath();bubble.connector.forEach((point,j)=>j?ctx.lineTo(point.x,point.y):ctx.moveTo(point.x,point.y));ctx.strokeStyle=design.edge;ctx.lineWidth=1.7;ctx.stroke();
   }
   ctx.beginPath();
   for(const [i,point]of trace.visible.entries()){if(!i)ctx.moveTo(point.x,point.y);else ctx.lineTo(point.x,point.y);}
-  ctx.strokeStyle=RED;ctx.lineWidth=6.5;ctx.lineCap='round';ctx.lineJoin='round';ctx.stroke();
+  ctx.strokeStyle=RED;ctx.lineWidth=6.5;ctx.lineCap='round';ctx.lineJoin='round';if(!design.down)ctx.stroke();
+  if(design.down) for(let i=1;i<trace.visible.length;i++){
+    const previous=trace.visible[i-1], point=trace.visible[i];
+    ctx.beginPath();ctx.moveTo(previous.x,previous.y);ctx.lineTo(point.x,point.y);
+    ctx.strokeStyle=segmentColor(design,previous,point);ctx.stroke();
+  }
   if(trace.tip){ctx.beginPath();ctx.arc(trace.tip.x,trace.tip.y,7,0,Math.PI*2);ctx.fillStyle=RED;ctx.fill();}
   const seen=new Set();
   for(let i=0;i<=state.revealed;i++){
     const point=layout.points[i];if(!point)continue;
     const key=`${point.x}:${point.y}`,duplicate=seen.has(key);seen.add(key);
-    ctx.beginPath();ctx.arc(point.x,point.y,9,0,Math.PI*2);ctx.fillStyle=COLORS[i%4];ctx.fill();ctx.strokeStyle=INK;ctx.lineWidth=3;ctx.stroke();
-    if(!duplicate&&point.id!==BIRTH_ANCHOR_ID){const label=`${point.score>0?'+':''}${point.score}${point.coincident>1?' · '+point.coincident+'件':''}`;ctx.font='700 22px sans-serif';ctx.strokeStyle=PAPER;ctx.lineWidth=5;ctx.strokeText(label,point.x+15,point.y-16);ctx.fillStyle=INK;ctx.fillText(label,point.x+15,point.y-16);}
+    ctx.beginPath();ctx.arc(point.x,point.y,9,0,Math.PI*2);ctx.fillStyle=COLORS[i%COLORS.length];ctx.fill();ctx.strokeStyle=INK;ctx.lineWidth=3;ctx.stroke();
+    if(!duplicate&&point.id!==BIRTH_ANCHOR_ID){const label=`${point.score>0?'+':''}${point.score}${point.coincident>1?' · '+point.coincident+'件':''}`;ctx.font=`700 22px ${design.font}`;ctx.strokeStyle=PAPER;ctx.lineWidth=5;ctx.strokeText(label,point.x+15,point.y-16);ctx.fillStyle=INK;ctx.fillText(label,point.x+15,point.y-16);}
   }
   ctx.restore();return state;
 }
@@ -148,7 +177,7 @@ export async function createVideo(doc,onProgress,signal){
     // Extract using the unique group boundary rather than keeping a full board image per event.
     const at=svg.indexOf('data-event-index="'+bubble.index+'"'),groupStart=svg.lastIndexOf('<g ',at),groupEnd=svg.indexOf('</g>',at)+4;
     const fragment=svg.slice(groupStart,groupEnd),x=bubble.x-23,y=bubble.y-27,w=bubble.width+49,h=bubble.height+33;
-    cards.push(await svgToCanvas(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="${x} ${y} ${w} ${h}" font-family="sans-serif">${fragment}</svg>`,{maxDimension:4096,maxPixels:3000000}));
+    cards.push(await svgToCanvas(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="${x} ${y} ${w} ${h}" font-family="${outputDesign(doc.design).font}" fill="${outputDesign(doc.design).ink}">${fragment}</svg>`,{maxDimension:4096,maxPixels:3000000}));
   }
   if(signal?.aborted)throw new DOMException('動画作成を中止しました。','AbortError');
   const canvas=document.createElement('canvas');canvas.width=spec.width;canvas.height=spec.height;

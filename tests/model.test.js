@@ -250,3 +250,27 @@ test('age and school guide imports do not consume a slot for the fixed birth ori
     assert.equal(appendGuide(emptyDocument(),[record],{mode}).events[0],record);
   }
 });
+
+test('design selection survives backup; older backups default to A',()=>{
+  const source=emptyDocument();
+  delete source.design;
+  assert.equal(validateDocument(source).design,'A');
+  for(const design of 'ABCDE'){
+    assert.equal(parseDocument(JSON.stringify({...source,design})).design,design);
+  }
+  assert.throws(()=>validateDocument({...source,design:'F'}),/出力デザイン/);
+});
+
+test('five design palettes apply to image exports and video frame previews',()=>{
+  const events=[event(0,'誕生','',2),event(4,'','入学',9),event(8,'','卒業',3)];
+  for(const [design,paper] of Object.entries({A:'#ffffff',B:'#101824',C:'#ecf4f2',D:'#eff5ff',E:'#101719'})){
+    const doc={...emptyDocument(),design,events};
+    const image=exportSvg(doc);
+    const video=cameraFrameSvg(doc,cameraSchedule(timelineLayout(doc)).duration);
+    for(const svg of [image,video]){
+      assert.ok(svg.includes(`data-design="${design}"`));
+      assert.ok(svg.includes(`fill="${paper}"`));
+      if(design==='E')for(const color of ['#55df9a','#ff7d86'])assert.ok(svg.includes(`stroke="${color}"`));
+    }
+  }
+});

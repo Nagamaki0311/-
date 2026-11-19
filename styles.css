@@ -15,3 +15,14 @@ main{max-width:1600px;margin:16px auto 0;padding:0 24px}.workspace{display:grid;
 @media(max-width:850px){.header{padding:0 16px}.brand{font-size:16px}.brand-light{font-size:12px}main{margin-top:12px;padding:0 16px}.mobile-tabs{display:flex;gap:4px;border:1px solid #c3d0c3;background:#e9ede3;border-radius:5px;padding:4px;margin-bottom:12px;position:sticky;top:8px;z-index:5}.mobile-tabs button{width:50%;min-height:44px;font-size:12px;font-weight:600;border-radius:4px}.mobile-tabs button.active{background:var(--ink);color:white}.workspace{display:block}.preview-panel{display:none}body[data-mobile-view=preview] .editor{display:none}body[data-mobile-view=preview] .preview-panel{display:block}.guide-settings input,.profile-fields input,.event-fields input,.event-fields textarea{font-size:16px}.bulk-tools button{min-height:44px}.board-tools{gap:8px}.board-zoom{width:100%;justify-content:center}.board-viewport{height:67dvh;min-height:350px}.footer{padding:8px 16px;margin-top:8px}dialog{padding:16px}.dialog-actions>*{flex:1}.output-layouts button{padding:8px 4px;gap:4px}}
 @media(max-width:380px){.bulk-tools{gap:4px}.export-actions{grid-template-columns:1fr}.output-layouts small{display:none}.board-info{flex-wrap:wrap}}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
+
+.output-designs{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.output-designs span{font-size:12px;font-weight:600}
+.output-designs button{min-width:44px;min-height:44px;border:1px solid #a7b7ad;border-radius:5px}
+.output-designs button[aria-pressed="true"]{outline:2px solid var(--ink);outline-offset:1px}
+.output-designs button:focus-visible{outline:3px solid #147eb0;outline-offset:3px}
+[data-output-design="A"]{background:#fff;color:#2456d3}
+[data-output-design="B"]{background:#101824;color:#ffce61}
+[data-output-design="C"]{background:#ecf4f2;color:#15785e}
+[data-output-design="D"]{background:#fff36a;color:#a91754}
+[data-output-design="E"]{background:#101719;color:#55df9a}

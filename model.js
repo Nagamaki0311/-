@@ -1,5 +1,6 @@
 // ===== SECTION: Data model and trust boundary =====
 export const VERSION = 1;
+export const DESIGN_IDS = ['A', 'B', 'C', 'D', 'E'];
 export const NORMAL_EVENT_LIMIT = 30;
 export const MAX_EVENTS = 121;
 export const AGE_GUIDE_WARNING = '年齢ごとは30件を超えて追加できます。件数によっては正常に表示・出力できない場合があります。';
@@ -10,7 +11,7 @@ export function event(age = 0, label = '', title = '', score = 5, comment = '') 
   return { id: uid(), age, label, title, score, comment };
 }
 export function emptyDocument() {
-  return { version: VERSION, name: '', title: 'わたしの人生年表', layout: 'wide', negative: false, events: [] };
+  return { version: VERSION, name: '', title: 'わたしの人生年表', layout: 'wide', design: 'A', negative: false, events: [] };
 }
 export function sampleDocument() {
   return { ...emptyDocument(), name: 'サンプル', title: 'わたしの人生年表', events: [
@@ -33,6 +34,8 @@ export function validateDocument(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input) || input.version !== VERSION) throw new Error('対応していないデータ形式です。バージョン1の年表JSONを選んでください。');
   if (!Array.isArray(input.events) || input.events.length > MAX_EVENTS) throw new Error(`節目は${MAX_EVENTS}件までです。`);
   if (!['wide','square','portrait'].includes(input.layout) || typeof input.negative !== 'boolean') throw new Error('表示設定の形式が正しくありません。');
+  const design = input.design === undefined ? 'A' : input.design;
+  if (!DESIGN_IDS.includes(design)) throw new Error('出力デザインはA〜Eから選んでください。');
   const ids = new Set();
   const events = input.events.map(e=>{
     if (!e || typeof e !== 'object' || !Number.isInteger(e.age) || e.age<0 || e.age>120 || !Number.isInteger(e.score) || e.score< -10 || e.score>10) throw new Error('年齢は0〜120、スコアは-10〜10の整数にしてください。');
@@ -41,7 +44,7 @@ export function validateDocument(input) {
     ids.add(id);
     return { id, age:e.age, label:string(e.label,40,'区分'), title:string(e.title,80,'できごと'), comment:string(e.comment,300,'コメント'), score:e.score };
   });
-  return {version:VERSION, name:string(input.name,40,'名前'), title:string(input.title,80,'タイトル'), layout:input.layout, negative:input.negative, events};
+  return {version:VERSION, name:string(input.name,40,'名前'), title:string(input.title,80,'タイトル'), layout:input.layout, design, negative:input.negative, events};
 }
 export function parseDocument(text) {
   if (typeof text !== 'string' || text.length > 250000) throw new Error('ファイルが大きすぎます（250KBまで）。');
@@ -175,7 +178,7 @@ export function timelineLayout(doc) {
   const byPoint=new Map();for(const point of points){const key=point.age+':'+point.score;byPoint.set(key,(byPoint.get(key)||0)+1);}
   for(const point of points)point.coincident=byPoint.get(point.age+':'+point.score);
   const row={index:0,y:headerHeight,height:height-headerHeight-48,minAge,maxAge,box,eventIds:list.map(record=>record.id)};
-  return {width,height,pad,headerHeight,heading:documentHeading(doc),titleLines,nameLines:[],rows:[row],points,bubbles,low,minAge,maxAge,box,ageScale,breaks:breaks.map(gap=>({...gap,x:firstX+gap.offset})),panorama:true,folded:false};
+  return {design:doc.design,width,height,pad,headerHeight,heading:documentHeading(doc),titleLines,nameLines:[],rows:[row],points,bubbles,low,minAge,maxAge,box,ageScale,breaks:breaks.map(gap=>({...gap,x:firstX+gap.offset})),panorama:true,folded:false};
 }
 export function rasterPlan(width,height,{maxDimension=8192,maxPixels=16000000}={}) {
   const scale=Math.min(1,maxDimension/width,maxDimension/height,Math.sqrt(maxPixels/(width*height)));

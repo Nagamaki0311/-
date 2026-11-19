@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {NORMAL_EVENT_LIMIT,MAX_EVENTS,AGE_GUIDE_WARNING,emptyDocument,event,validateDocument,parseDocument,guideEvents,appendGuide,chartGeometry,sortedEvents,escapeXml,cleanText,timelineLayout,wrapText,rasterPlan,playbackPosition,playbackTime,documentHeading,periodLabel,removeEvents,restoreEvents,layoutSpecs} from '../model.js';
+import {BIRTH_ANCHOR_ID,NORMAL_EVENT_LIMIT,MAX_EVENTS,AGE_GUIDE_WARNING,emptyDocument,event,validateDocument,parseDocument,guideEvents,appendGuide,chartGeometry,sortedEvents,escapeXml,cleanText,timelineLayout,wrapText,rasterPlan,playbackPosition,playbackTime,documentHeading,periodLabel,removeEvents,restoreEvents,layoutSpecs} from '../model.js';
 import {exportSvg,timelineSvg,traceGeometry,drawVideoFrame,cameraState,cameraSchedule,cameraFrameSvg,videoAssetPlan} from '../export.js';
 
 test('JSON backups round-trip Unicode and negative scores without mutation',()=>{
@@ -56,15 +56,16 @@ function segmentEntersRect(a,b,rect){
 }
 function assertBoardGeometry(doc){
   const board=timelineLayout(doc);
-  assert.equal(board.bubbles.length,doc.events.length);assert.equal(board.points.length,doc.events.length);
+  const displayCount=doc.events.length+(doc.events.some(e=>e.age===0)?0:1);
+  assert.equal(board.bubbles.length,displayCount);assert.equal(board.points.length,displayCount);
   for(const b of board.bubbles){
     assert.ok(b.x>=0&&b.y>=0&&b.x+b.width<=board.width&&b.y+b.height<=board.height,'full bubble must be within board');
     assert.deepEqual(b.connector[0],{x:b.point.x,y:b.point.y},'connector must start at exact age/score point');
     for(const other of board.bubbles){
       if(b===other)continue;
       assert.ok(!intersects(b,other),'event bubbles must not overlap');
-      const obstacles=[other,{x:other.x+4,y:other.y+5,width:other.width,height:other.height},{x:other.x-7,y:other.y-27,width:38,height:38},{x:other.x+other.width-62,y:other.y-14,width:53,height:29}];
-      for(const obstacle of obstacles)for(let i=1;i<b.connector.length;i++)assert.ok(!segmentEntersRect(b.connector[i-1],b.connector[i],obstacle),'connector must not cross another event, including its number/score stamp');
+      const obstacles=[other,{x:other.x+4,y:other.y+5,width:other.width,height:other.height}];
+      for(const obstacle of obstacles)for(let i=1;i<b.connector.length;i++)assert.ok(!segmentEntersRect(b.connector[i-1],b.connector[i],obstacle),'connector must not cross another event, including its shadow');
     }
   }
   return board;
@@ -78,7 +79,7 @@ test('all image formats preserve a single readable panorama, even with 121 age e
     assert.equal(board.rows.length,1);assert.equal(board.folded,false);assert.equal(board.panorama,true);
     assert.equal((svg.match(/data-panorama-axis=/g)||[]).length,1);
     assert.doesNotMatch(svg,/次の段へ|data-timeline-row|NaN|Infinity/);
-    assert.equal((svg.match(/data-kind="bubble"/g)||[]).length,amount);
+    assert.equal((svg.match(/data-kind="bubble"/g)||[]).length,Math.max(1,amount));
     assert.ok(board.box.height>=560,'the fixed score range has enough vertical room to show rises and falls');
     for(let i=1;i<board.points.length;i++)assert.ok(board.points[i].x-board.points[i-1].x>=343.9,'normal yearly points must have readable separation');
     for(const bubble of board.bubbles){assert.equal(bubble.titleLines.join(''),bubble.title);assert.equal(bubble.commentLines.join(''),bubble.comment);}
@@ -86,18 +87,23 @@ test('all image formats preserve a single readable panorama, even with 121 age e
     for(const layout of ['square','portrait'])assert.deepEqual(timelineLayout({...doc,layout}),board,'video aspect choices must not alter image layout');
   }
 });
-test('one numeric age axis preserves true intervals and fixed linear score values',()=>{
-  const doc={...emptyDocument(),events:[event(4,'','first',-10),event(5,'','second',0),event(30,'','last',10)]};
+test('age gaps of three years or more are marked and shortened on one linear score axis',()=>{
+  const doc={...emptyDocument(),events:[event(0,'誕生'),event(1,'','one',-10),event(3,'','three',0),event(6,'','six',10),event(60,'','last',5)]};
   const board=assertBoardGeometry(doc),svg=exportSvg(doc);
-  const points=board.points;
-  assert.equal(points[0].row,0);assert.equal(points[2].row,0);
-  assert.ok(Math.abs((points[2].x-points[1].x)/(points[1].x-points[0].x)-25)<1e-9);
-  assert.equal(points[0].y,board.box.y+board.box.height);assert.equal(points[2].y,board.box.y);assert.equal(points[1].y,board.box.y+board.box.height/2);
-  assert.ok(svg.includes('4〜30歳'));assert.ok(svg.includes('−10')||svg.includes('-10'));
-  assert.match(svg,/stroke-width="6.5"/);assert.match(svg,/data-area=/);
-  assert.ok(!svg.includes('次の段へ'));
+  const [birth,one,three,six,last]=board.points;
+  assert.deepEqual(board.breaks.map(({from,to})=>[from,to]),[[3,6],[6,60]]);
+  assert.equal(three.x-one.x,2*(one.x-birth.x));
+  assert.ok(six.x-three.x<2*(one.x-birth.x));
+  assert.equal(last.x-six.x,six.x-three.x);
+  assert.equal(one.y,board.box.y+board.box.height);
+  assert.equal(six.y,board.box.y);
+  assert.equal(three.y,board.box.y+board.box.height/2);
+  assert.equal((svg.match(/data-age-break=/g)||[]).length,2);
+  assert.match(cameraFrameSvg(doc,0),/data-age-break/);
+  assert.match(svg,/0〜60歳/);
+  assert.match(svg,/stroke-width="6.5"/);
 });
-test('normal additions stop at 30 while age guide alone can append 121 and legacy data survives',()=>{
+test('normal additions stop at 30 and the age guide can add all 120 editable years',()=>{
   assert.equal(NORMAL_EVENT_LIMIT,30);assert.equal(MAX_EVENTS,121);assert.match(AGE_GUIDE_WARNING,/正常に表示・出力できない/);
   let doc=emptyDocument();
   for(let i=0;i<30;i++)doc=appendGuide(doc,[event(0)],{mode:'manual'});
@@ -106,8 +112,12 @@ test('normal additions stop at 30 while age guide alone can append 121 and legac
   for(const mode of ['manual','turning','school'])assert.throws(()=>appendGuide(doc,[event(1,'new')],{mode}),/30/);
   assert.throws(()=>appendGuide(emptyDocument(),guideEvents('school',40),{mode:'school'}),/30/);
   const ages=appendGuide(emptyDocument(),guideEvents('age',120),{mode:'age'});
-  assert.equal(ages.events.length,121);assert.equal(parseDocument(JSON.stringify(ages)).events.length,121);
-  assert.throws(()=>appendGuide(ages,[event(0,'new')],{mode:'age'}),/121/);
+  assert.equal(ages.events.length,120);assert.equal(parseDocument(JSON.stringify(ages)).events.length,120);
+  assert.ok(ages.events.every(record=>record.age>0));
+  assert.equal(timelineLayout(ages).points.length,121);
+  const atLimit=appendGuide({...emptyDocument(),events:[event(0,'birth legacy')]},guideEvents('age',120),{mode:'age'});
+  assert.equal(atLimit.events.length,121);
+  assert.throws(()=>appendGuide(atLimit,[event(0,'new')],{mode:'age'}),/121/);
   const legacy={...emptyDocument(),events:Array.from({length:100},(_,i)=>event(i))};
   const restored=parseDocument(JSON.stringify(legacy));assert.deepEqual(restored,legacy);
   const removed=removeEvents(restored,restored.events.slice(0,80).map(record=>record.id));
@@ -115,21 +125,24 @@ test('normal additions stop at 30 while age guide alone can append 121 and legac
   assert.throws(()=>appendGuide(restored,[event(100)],{mode:'manual'}),/30/);
   assert.throws(()=>validateDocument({...legacy,events:Array.from({length:122},()=>event())}),/121/);
 });
-test('new and fully deleted documents export and animate finite empty states',()=>{
+test('new and fully deleted documents retain a fixed display-only birth origin',()=>{
   const before={...emptyDocument(),events:[event(0)]};
   for(const doc of [emptyDocument(),removeEvents(before,[before.events[0].id]).document]){
     const board=timelineLayout(doc),svg=exportSvg(doc),state=cameraState(board,0);
     assert.equal(board.width,1600);assert.ok(board.box.width>1000);assert.match(svg,/width="1600"/);assert.doesNotMatch(svg,/NaN|Infinity/);
     for(const number of [state.camera.x,state.camera.y,state.camera.width,state.camera.height])assert.ok(Number.isFinite(number));
-    assert.equal(state.index,-1);assert.equal(state.revealed,-1);assert.doesNotMatch(cameraFrameSvg(doc,0),/NaN|Infinity/);
+    assert.equal(state.index,0);assert.equal(state.revealed,0);assert.doesNotMatch(cameraFrameSvg(doc,0),/NaN|Infinity/);
+    assert.equal(board.points[0].id,BIRTH_ANCHOR_ID);
+    assert.equal(board.points[0].age,0);assert.match(svg,/0歳 \/ 誕生/);
+    assert.equal(doc.events.length,0);
   }
 });
 test('same-age records remain distinct, with local non-overlapping cards and safe connectors',()=>{
   for(const layout of ['wide','square','portrait']){
     const doc={...emptyDocument(),layout,events:Array.from({length:27},(_,i)=>event(10,`同年齢${i}`,`出来事${i}`,i%3-1,'同じ時期の記録'))};
     const board=assertBoardGeometry(doc);
-    for(const row of board.rows)assert.equal(new Set(board.points.filter(point=>point.row===row.index).map(point=>point.x)).size,1);
-    assert.equal(new Set(board.bubbles.map(bubble=>bubble.id)).size,27);
+    for(const row of board.rows)assert.equal(new Set(board.points.filter(point=>point.row===row.index&&point.age===10).map(point=>point.x)).size,1);
+    assert.equal(new Set(board.bubbles.map(bubble=>bubble.id)).size,28);
     assert.deepEqual(timelineLayout(doc),board);
   }
 });
@@ -211,4 +224,29 @@ test('video prepares bounded cached assets and uses the same camera transform as
 test('preview playback still retains its final hold independently of camera video duration',()=>{
   assert.equal(playbackPosition(6,.5).index,2);assert.equal(playbackPosition(0,1).index,-1);
   const {duration}=playbackTime(2,0);assert.equal(playbackTime(2,duration-1200).progress,1);assert.equal(playbackTime(2,duration-1).complete,false);assert.equal(playbackTime(2,duration).complete,true);
+});
+
+test('adding guides reuses an existing age-zero record and cards omit number and score badges',()=>{
+  const legacy=event(0,'乳児期','生まれた',4,'実際の記録');
+  const doc={...emptyDocument(),events:[legacy]};
+  const next=appendGuide(doc,guideEvents('age',2),{mode:'age'});
+  assert.equal(next.events.length,3);
+  assert.equal(next.events[0],legacy);
+  const svg=exportSvg(next);
+  const card=svg.match(/<g [^>]*data-kind="bubble"[^>]*>[\s\S]*?<\/g>/)[0];
+  assert.match(card,/0歳 \/ 誕生 \/ 乳児期/);
+  assert.doesNotMatch(card,/<circle|\+4|>01</);
+  assert.match(svg,/\+4/);
+});
+
+test('age and school guide imports do not consume a slot for the fixed birth origin',()=>{
+  for(const mode of ['age','school']){
+    const result=appendGuide(emptyDocument(),guideEvents(mode,12),{mode});
+    assert.ok(result.events.every(record=>record.age>0));
+    assert.equal(timelineLayout(result).points[0].id,BIRTH_ANCHOR_ID);
+  }
+  for(const mode of ['turning','manual']){
+    const record=event(0,'転機','家族の記録');
+    assert.equal(appendGuide(emptyDocument(),[record],{mode}).events[0],record);
+  }
 });

@@ -1,4 +1,4 @@
-import {NORMAL_EVENT_LIMIT,AGE_GUIDE_WARNING,STORAGE_KEY,emptyDocument,sampleDocument,event,sortedEvents,parseDocument,guideEvents,appendGuide,escapeXml,cleanText,timelineLayout,rasterPlan,playbackPosition,playbackTime,documentHeading,periodLabel,removeEvents,restoreEvents} from './model.js';
+import {BIRTH_ANCHOR_ID,NORMAL_EVENT_LIMIT,AGE_GUIDE_WARNING,STORAGE_KEY,emptyDocument,sampleDocument,event,sortedEvents,parseDocument,guideEvents,appendGuide,escapeXml,cleanText,timelineLayout,rasterPlan,playbackPosition,playbackTime,documentHeading,periodLabel,removeEvents,restoreEvents} from './model.js';
 import {timelineSvg,traceGeometry,exportSvg,svgToCanvas,canvasBlob,videoMime,createVideo,cameraSchedule} from './export.js';
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)], esc=escapeXml;
 let doc=emptyDocument(),sample=sampleDocument(),showingSample=true,selectedId=null,guide='turning',toastTimer,undo=null;
@@ -53,7 +53,7 @@ $$('[data-guide]').forEach(b=>b.onclick=()=>{
   guide=b.dataset.guide;
   $$('[data-guide]').forEach(x=>{x.classList.toggle('selected',x===b);x.setAttribute('aria-pressed',x===b);});
   $('#work-start-label').hidden=guide!=='school';
-  $('#guide-hint').textContent=guide==='age'?'0歳から現在まで1歳ずつ追加します。':guide==='school'?'学校の学年と社会人の年数を追加します。':'指定した年齢の節目を追加します。';updateGuideNotice();
+  $('#guide-hint').textContent=guide==='age'?'1歳から現在まで1歳ずつ追加します。0歳／誕生は固定です。':guide==='school'?'学校の学年と社会人の年数を追加します。':'指定した年齢の節目を追加します。';updateGuideNotice();
 });
 $('#apply-guide').onclick=()=>{
   try{
@@ -124,7 +124,7 @@ function updateBoardProgress(progress,activeId){
   path?.setAttribute('d',trace.path);area?.setAttribute('d',trace.area);
   if(tip){tip.setAttribute('r',trace.tip?'8':'0');if(trace.tip){tip.setAttribute('cx',trace.tip.x);tip.setAttribute('cy',trace.tip.y);}}
   if(highlightedId!==activeId){
-    root.querySelectorAll('[data-event-id]').forEach(el=>{
+    root.querySelectorAll('[data-event-id][role=button]').forEach(el=>{
       const active=el.dataset.eventId===activeId;el.classList.toggle('is-selected',active);el.setAttribute('aria-pressed',active);
       const outline=el.querySelector('.bubble-outline');if(outline){outline.setAttribute('stroke',active?'#f26654':'#172f44');outline.setAttribute('stroke-width',active?'4':'2.5');}
     });
@@ -140,10 +140,12 @@ function applyZoom(preserveCenter=true){
   if(preserveCenter){viewport.scrollLeft=cx*ratio-viewport.clientWidth/2;viewport.scrollTop=cy*ratio-viewport.clientHeight/2;}
 }
 function renderPreview(){
-  const d=currentDoc(),key=JSON.stringify(d),list=sortedEvents(d.events),active=activePreviewId(list);
+  const d=currentDoc(),key=JSON.stringify(d),list=sortedEvents(d.events);
+  if(key!==previewKey)previewLayout=timelineLayout(d);
+  const active=activePreviewId(previewLayout.points);
   $('#sample-badge').hidden=!showingSample;
   if(key!==previewKey){
-    previewLayout=timelineLayout(d);previewKey=key;
+    previewKey=key;
     $('#chart').innerHTML=timelineSvg(d,{layout:previewLayout,selectedId:active,progress:playProgress,interactive:true});
     highlightedId=active;$('#board-summary').textContent=`${list.length}件 / ${previewLayout.width}×${previewLayout.height}px`;applyZoom(false);
   }
@@ -154,7 +156,7 @@ function revealEvent(id){
   const viewport=$('#board-viewport');viewport.scrollTo({left:Math.max(0,(bubble.x+bubble.width/2)*boardZoom-viewport.clientWidth/2),top:Math.max(0,bubble.y*boardZoom-30),behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
 }
 function selectPoint(target){
-  const point=target.closest('[data-event-id]');if(!point)return;
+  const point=target.closest('[data-event-id]');if(!point||point.dataset.eventId===BIRTH_ANCHOR_ID)return;
   const keepFocus=point.contains(document.activeElement),kind=point.dataset.kind;
   stopPlayback(true);selectedId=point.dataset.eventId;if(!showingSample)renderEditor();renderPreview();
   if(keepFocus)[...$('#chart').querySelectorAll('[data-event-id]')].find(el=>el.dataset.eventId===selectedId&&el.dataset.kind===kind)?.focus({preventScroll:true});
@@ -167,7 +169,7 @@ $('#zoom-out').onclick=()=>{boardZoom=Math.max(.08,boardZoom/1.25);applyZoom();}
 $('#zoom-readable').onclick=()=>{boardZoom=.85;applyZoom();};
 $('#zoom-fit').onclick=()=>{if(!previewLayout)return;const v=$('#board-viewport');boardZoom=Math.max(.001,Math.min(1,v.clientWidth/previewLayout.width,v.clientHeight/previewLayout.height));applyZoom();v.scrollTop=0;v.scrollLeft=0;};
 function stopPlayback(reset=false){cancelAnimationFrame(playRaf);playing=false;$('#play').textContent='▶';$('#play').setAttribute('aria-label','年表を再生');if(reset){playElapsed=0;playProgress=1;$('#play-label').textContent='年表を再生';$('#play-hint').textContent='';}}
-function frame(now){playElapsed=now-playStart;const state=playbackTime(currentDoc().events.length,playElapsed);playProgress=state.progress;updateBoardProgress(playProgress,previewLayout?.points[playbackPosition(previewLayout.points.length,playProgress).index]?.id||'');if(!state.complete){playRaf=requestAnimationFrame(frame);}else{selectedId=previewLayout?.points.at(-1)?.id||null;stopPlayback();playElapsed=0;$('#play-label').textContent='再生が終了しました';$('#play-hint').textContent='';}}
+function frame(now){playElapsed=now-playStart;const state=playbackTime(previewLayout.points.length,playElapsed);playProgress=state.progress;updateBoardProgress(playProgress,previewLayout?.points[playbackPosition(previewLayout.points.length,playProgress).index]?.id||'');if(!state.complete){playRaf=requestAnimationFrame(frame);}else{selectedId=previewLayout?.points.at(-1)?.id||null;stopPlayback();playElapsed=0;$('#play-label').textContent='再生が終了しました';$('#play-hint').textContent='';}}
 $('#play').onclick=()=>{
   if(playing){stopPlayback();$('#play-label').textContent='一時停止';return;}
   if(!currentDoc().events.length)return;

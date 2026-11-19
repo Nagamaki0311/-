@@ -3,6 +3,7 @@ export const VERSION = 1;
 export const NORMAL_EVENT_LIMIT = 30;
 export const MAX_EVENTS = 121;
 export const AGE_GUIDE_WARNING = '年齢ごとは30件を超えて追加できます。件数によっては正常に表示・出力できない場合があります。';
+export const BIRTH_ANCHOR_ID = 'fixed:birth';
 export const STORAGE_KEY = 'jinsei-timeline-v1';
 export function uid() { return globalThis.crypto?.randomUUID?.() ?? `e-${Date.now()}-${Math.random().toString(36).slice(2)}`; }
 export function event(age = 0, label = '', title = '', score = 5, comment = '') {
@@ -52,7 +53,7 @@ export function parseDocument(text) {
 export function guideEvents(mode, age, workStart = 22) {
   if (!Number.isInteger(age) || age<0 || age>120) throw new Error('現在の年齢を0〜120の整数で入力してください。');
   if (mode === 'school' && (!Number.isInteger(workStart) || workStart<0 || workStart>120)) throw new Error('社会人の開始年齢を0〜120で入力してください。');
-  if(mode === 'age') return Array.from({length:age+1},(_,i)=>event(i, `${i}歳`));
+  if(mode === 'age') return Array.from({length:age+1},(_,i)=>event(i, i===0?'誕生':`${i}歳`));
   if(mode === 'turning') return [event(age, '転機')];
   if(mode !== 'school') throw new Error('ガイドを選択してください。');
   const result = [event(0,'誕生')];
@@ -64,7 +65,11 @@ export function guideEvents(mode, age, workStart = 22) {
 }
 export function appendGuide(doc, generated, { mode = 'turning' } = {}) {
   const keys = new Set(doc.events.map(e=>`${e.age}\0${e.label}`));
-  const added = mode==='manual'?generated:generated.filter(e=>!keys.has(`${e.age}\0${e.label}`));
+  const usesFixedBirth = mode==='age'||mode==='school';
+  const added = mode==='manual' ? generated : generated.filter(record=>{
+    if(usesFixedBirth&&record.age===0&&record.label==='誕生')return false;
+    return !keys.has(`${record.age}\0${record.label}`);
+  });
   const limit=mode==='age'?MAX_EVENTS:NORMAL_EVENT_LIMIT;
   if(added.length&&doc.events.length + added.length > limit) throw new Error(mode==='age'?`年齢ごとの節目は${MAX_EVENTS}件までです。`:`通常の節目は${NORMAL_EVENT_LIMIT}件までです。不要な節目を削除してください。`);
   return {...doc, events:[...doc.events,...added]};
@@ -120,7 +125,18 @@ function eventCard(record,index,cardWidth) {
 }
 export function timelineLayout(doc) {
   const list=sortedEvents(doc.events),pad=64,cardWidth=280,cardGap=24,plotHeight=560;
-  const cards=list.map((record,index)=>eventCard(record,index,cardWidth));
+  // The fixed origin is derived for display. It never consumes a slot or changes saved records.
+  if(list[0]?.age!==0)list.unshift({id:BIRTH_ANCHOR_ID,age:0,label:'誕生',title:'',comment:'',score:5});
+  const cards=list.map((record,index)=>{
+    const card=eventCard(record,index,cardWidth);
+    if(index===0&&record.label.trim()!=='誕生'){
+      const label=record.label.trim();
+      card.periodLines=wrapText('0歳 / 誕生'+(label&&label!=='0歳'?' / '+label:''),(cardWidth-44)/16);
+      const extraLines=card.periodLines.length-wrapText(periodLabel(record),(cardWidth-44)/16).length;
+      card.height+=extraLines*24;
+    }
+    return card;
+  });
   const groups=[];
   for(const card of cards){
     let group=groups.at(-1);
@@ -128,17 +144,25 @@ export function timelineLayout(doc) {
     group.cards.push(card);
   }
   for(const group of groups)group.width=group.cards.length*(cardWidth+cardGap)-cardGap;
-  const minAge=groups[0]?.age??0,maxAge=groups.at(-1)?.age??1,span=maxAge-minAge;
-  let ageScale=32;
-  for(let i=1;i<groups.length;i++)ageScale=Math.max(ageScale,((groups[i-1].width+groups[i].width)/2+64)/(groups[i].age-groups[i-1].age));
-  const left=(groups[0]?.width??cardWidth)/2,right=(groups.at(-1)?.width??cardWidth)/2;
-  const naturalWidth=pad*2+left+span*ageScale+right,width=Math.ceil(Math.max(1600,naturalWidth));
+  const minAge=0,maxAge=groups.at(-1).age;
+  const ageScale=cardWidth+64,breaks=[];
+  let span=0;
+  groups[0].offset=0;
+  for(let i=1;i<groups.length;i++){
+    const previous=groups[i-1],current=groups[i],gap=current.age-previous.age;
+    const distance=Math.max(ageScale*(gap>=3?1.5:gap),(previous.width+current.width)/2+64);
+    if(gap>=3)breaks.push({from:previous.age,to:current.age,offset:span+distance/2});
+    span+=distance;
+    current.offset=span;
+  }
+  const left=groups[0].width/2,right=groups.at(-1).width/2;
+  const naturalWidth=pad*2+left+span+right,width=Math.ceil(Math.max(1600,naturalWidth));
   const inset=(width-naturalWidth)/2,firstX=pad+left+inset;
   const titleLines=wrapText(documentHeading(doc),(width-pad*2-64)/38),headerHeight=64+titleLines.length*50;
-  const box={x:span&&groups.length?firstX:pad+60,y:headerHeight+40,width:span&&groups.length?span*ageScale:width-pad*2-120,height:plotHeight};
+  const box={x:span&&groups.length?firstX:pad+60,y:headerHeight+40,width:span&&groups.length?span:width-pad*2-120,height:plotHeight};
   const low=list.some(record=>record.score<0)?-10:0,points=[],bubbles=[];
   for(const group of groups){
-    const x=span?firstX+(group.age-minAge)*ageScale:width/2;
+    const x=span?firstX+group.offset:width/2;
     group.cards.forEach((card,slot)=>{
       const point={...card,x,y:box.y+(10-card.score)/(10-low)*plotHeight,row:0};points.push(point);
       const bubble={...card,x:x-group.width/2+slot*(cardWidth+cardGap),y:box.y+plotHeight+100,point,row:0,slot};
@@ -151,7 +175,7 @@ export function timelineLayout(doc) {
   const byPoint=new Map();for(const point of points){const key=point.age+':'+point.score;byPoint.set(key,(byPoint.get(key)||0)+1);}
   for(const point of points)point.coincident=byPoint.get(point.age+':'+point.score);
   const row={index:0,y:headerHeight,height:height-headerHeight-48,minAge,maxAge,box,eventIds:list.map(record=>record.id)};
-  return {width,height,pad,headerHeight,heading:documentHeading(doc),titleLines,nameLines:[],rows:[row],points,bubbles,low,minAge,maxAge,box,ageScale,panorama:true,folded:false};
+  return {width,height,pad,headerHeight,heading:documentHeading(doc),titleLines,nameLines:[],rows:[row],points,bubbles,low,minAge,maxAge,box,ageScale,breaks:breaks.map(gap=>({...gap,x:firstX+gap.offset})),panorama:true,folded:false};
 }
 export function rasterPlan(width,height,{maxDimension=8192,maxPixels=16000000}={}) {
   const scale=Math.min(1,maxDimension/width,maxDimension/height,Math.sqrt(maxPixels/(width*height)));

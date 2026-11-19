@@ -3,7 +3,7 @@ import {timelineSvg,traceGeometry,traceSegments,exportSvg,svgToCanvas,canvasBlob
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)], esc=escapeXml;
 let doc=emptyDocument(),sample=sampleDocument(),showingSample=true,selectedId=null,guide='turning',toastTimer,undo=null;
 let playRaf=0,playStart=0,playElapsed=0,playing=false,playProgress=1;
-let exportDoc=null,pngPromise=null,videoBlob=null,videoUrl=null,videoController=null;
+let exportDoc=null,pngPromise=null,videoBlob=null,videoUrl=null,videoKey=null,videoController=null;
 let previewLayout=null,previewKey='',highlightedId='',boardZoom=.85;
 let checkedIds=new Set(),pendingDeleteIds=[];
 // ===== SECTION: Persistence and user feedback =====
@@ -146,12 +146,12 @@ function renderPreview(){
   const d=currentDoc(),key=JSON.stringify(d),list=sortedEvents(d.events);
   if(key!==previewKey)previewLayout=timelineLayout(d);
   const active=activePreviewId(previewLayout.points);
-  for(const button of $$('[data-output-design]')){
-    button.setAttribute('aria-pressed',String(button.dataset.outputDesign===(d.design||'A')));
-  }
   $('#sample-badge').hidden=!showingSample;
   if(key!==previewKey){
     previewKey=key;
+    for(const button of $$('[data-output-design]')){
+      button.setAttribute('aria-pressed',String(button.dataset.outputDesign===(d.design||'A')));
+    }
     $('#chart').innerHTML=timelineSvg(d,{layout:previewLayout,selectedId:active,progress:playProgress,interactive:true});
     highlightedId=active;$('#board-summary').textContent=`${list.length}件 / ${previewLayout.width}×${previewLayout.height}px`;applyZoom(false);
   }
@@ -224,19 +224,23 @@ $('#share').onclick=async()=>{
 };
 // ===== SECTION: Video creation and cleanup =====
 $('#video-open').onclick=()=>{
-  if(videoUrl)URL.revokeObjectURL(videoUrl);
-  videoBlob=null;videoUrl=null;
-  $('#video-result').removeAttribute('src');$('#video-result').hidden=true;$('#video-save').hidden=true;
+  if(videoKey!==JSON.stringify(currentDoc())){
+    if(videoUrl)URL.revokeObjectURL(videoUrl);
+    videoBlob=null;videoUrl=null;
+    $('#video-result').removeAttribute('src');$('#video-result').hidden=true;$('#video-save').hidden=true;
+  }
   const mime=videoMime(),duration=Math.ceil(cameraSchedule(timelineLayout(currentDoc())).duration/1000);$('#video-duration').textContent=`約${duration}秒。コメントの長さに合わせて各節目で停止します。`; $('#video-support').textContent=mime?`このブラウザで作成する形式：${mime.includes('mp4')?'MP4':'WebM'}。${showingSample?'現在はサンプルの年表です。':''}`:'このブラウザでは動画作成に対応していません。PNGまたはSVGで保存できます。';$('#video-create').disabled=!mime;$('#video-dialog').showModal();};
 $('#video-create').onclick=async()=>{
   if(!currentDoc().events.length){toast('動画にする節目を、ひとつ以上追加してください。');return;}
   const snapshot=structuredClone(currentDoc());$('#video-create').disabled=true;$('#video-create').textContent='動画を作成しています…';$('#video-progress').hidden=false;$('#video-progress').value=0;$('#video-save').hidden=true;
-  videoController=new AbortController();
+  const controller=new AbortController();
+  videoController=controller;
   try{
-    const blob=await createVideo(snapshot,p=>$('#video-progress').value=p,videoController.signal);
-    if(videoUrl)URL.revokeObjectURL(videoUrl);videoBlob=blob;videoUrl=URL.createObjectURL(blob);$('#video-result').src=videoUrl;$('#video-result').hidden=false;$('#video-save').hidden=false;toast('動画を作成しました。');
+    const blob=await createVideo(snapshot,p=>{if(videoController===controller)$('#video-progress').value=p;},controller.signal);
+    if(controller.signal.aborted||videoController!==controller)return;
+    if(videoUrl)URL.revokeObjectURL(videoUrl);videoKey=JSON.stringify(snapshot);videoBlob=blob;videoUrl=URL.createObjectURL(blob);$('#video-result').src=videoUrl;$('#video-result').hidden=false;$('#video-save').hidden=false;toast('動画を作成しました。');
   }catch(e){if(e.name!=='AbortError')toast(e.message);}
-  finally{videoController=null;$('#video-create').disabled=!videoMime();$('#video-create').textContent='動画を作成する';$('#video-progress').hidden=true;}
+  finally{if(videoController===controller){videoController=null;$('#video-create').disabled=!videoMime();$('#video-create').textContent='動画を作成する';$('#video-progress').hidden=true;}}
 };
 $('#video-save').onclick=()=>{if(videoBlob)download(videoBlob,filename(videoBlob.type.includes('mp4')?'mp4':'webm'));};
 $('#video-dialog').addEventListener('close',()=>{videoController?.abort();$('#video-result').pause();});

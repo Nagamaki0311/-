@@ -3,7 +3,7 @@ import {timelineSvg,traceGeometry,traceSegments,exportSvg,svgToCanvas,canvasBlob
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)], esc=escapeXml;
 let doc=emptyDocument(),sample=sampleDocument(),showingSample=true,selectedId=null,guide='turning',toastTimer,undo=null;
 let playRaf=0,playStart=0,playElapsed=0,playing=false,playProgress=1;
-let exportDoc=null,pngPromise=null,videoBlob=null,videoUrl=null,videoKey=null,videoController=null;
+let exportDoc=null,pngPromise=null,pngBlob=null,pngPreviewUrl=null,videoBlob=null,videoUrl=null,videoKey=null,videoController=null;
 let previewLayout=null,previewKey='',highlightedId='',boardZoom=.85;
 let checkedIds=new Set(),pendingDeleteIds=[];
 // ===== SECTION: Persistence and user feedback =====
@@ -134,6 +134,29 @@ function updateBoardProgress(progress,activeId){
     highlightedId=activeId;
   }
 }
+function updateScoreOverlay(){
+  const viewport=$('#board-viewport'),overlay=$('#score-overlay');
+  const axisX=previewLayout?.box.x*boardZoom-16*boardZoom;
+  overlay.hidden=!previewLayout||viewport.scrollLeft+28<axisX;
+  if(!overlay.hidden){
+    overlay.style.height=`${viewport.clientHeight}px`;
+    overlay.firstElementChild.style.transform=`translateY(${-viewport.scrollTop}px)`;
+  }
+}
+function renderScoreOverlay(){
+  const overlay=$('#score-overlay');
+  const track=document.createElement('div');
+  const ticks=previewLayout.low<0?[10,5,0,-5,-10]:[10,8,6,4,2,0];
+  for(const value of ticks){
+    const tick=document.createElement('span');
+    tick.textContent=value;
+    tick.style.top=`${(previewLayout.box.y+(10-value)/(10-previewLayout.low)*previewLayout.box.height)*boardZoom}px`;
+    track.append(tick);
+  }
+  overlay.replaceChildren(track);
+  updateScoreOverlay();
+}
+$('#board-viewport').addEventListener('scroll',updateScoreOverlay,{passive:true});
 function applyZoom(preserveCenter=true){
   if(!previewLayout)return;
   const viewport=$('#board-viewport'),board=$('#chart'),oldWidth=board.getBoundingClientRect().width||previewLayout.width*boardZoom;
@@ -141,7 +164,9 @@ function applyZoom(preserveCenter=true){
   board.style.width=`${previewLayout.width*boardZoom}px`;
   $('#zoom-value').value=`${Math.round(boardZoom*100)}%`;
   if(preserveCenter){viewport.scrollLeft=cx*ratio-viewport.clientWidth/2;viewport.scrollTop=cy*ratio-viewport.clientHeight/2;}
+  renderScoreOverlay();
 }
+let jumpEventsKey='';
 function renderPreview(){
   const d=currentDoc(),key=JSON.stringify(d),list=sortedEvents(d.events);
   if(key!==previewKey)previewLayout=timelineLayout(d);
@@ -153,6 +178,17 @@ function renderPreview(){
       button.setAttribute('aria-pressed',String(button.dataset.outputDesign===(d.design||'A')));
     }
     $('#chart').innerHTML=timelineSvg(d,{layout:previewLayout,selectedId:active,progress:playProgress,interactive:true});
+    const jump=$('#milestone-jump');
+    const eventsKey=JSON.stringify(d.events);
+    if(jumpEventsKey!==eventsKey){
+      const previous=jump.value;
+      jump.replaceChildren(new Option('節目を選択',''));
+      for(const bubble of previewLayout.bubbles){
+        jump.add(new Option(bubble.periodLines.join('')+(bubble.title?' — '+bubble.title:''),bubble.id));
+      }
+      jump.value=[...jump.options].some(option=>option.value===previous)?previous:'';
+      jumpEventsKey=eventsKey;
+    }
     highlightedId=active;$('#board-summary').textContent=`${list.length}件 / ${previewLayout.width}×${previewLayout.height}px`;applyZoom(false);
   }
   updateBoardProgress(playProgress,active);$('#play').disabled=!list.length;
@@ -170,6 +206,14 @@ function revealEvent(id){
   const bubble=previewLayout?.bubbles.find(b=>b.id===id);if(!bubble)return;
   const viewport=$('#board-viewport');viewport.scrollTo({left:Math.max(0,(bubble.x+bubble.width/2)*boardZoom-viewport.clientWidth/2),top:Math.max(0,bubble.y*boardZoom-30),behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
 }
+$('#milestone-jump').onchange=e=>{
+  if(!e.target.value)return;
+  stopPlayback(true);
+  selectedId=e.target.value;
+  if(!showingSample)renderEditor();
+  renderPreview();
+  revealEvent(e.target.value);
+};
 function selectPoint(target){
   const point=target.closest('[data-event-id]');if(!point||point.dataset.eventId===BIRTH_ANCHOR_ID)return;
   const keepFocus=point.contains(document.activeElement),kind=point.dataset.kind;
@@ -206,20 +250,64 @@ $('#help-open').onclick=$('#privacy-open').onclick=()=>$('#help-dialog').showMod
 $$('dialog').forEach(d=>d.addEventListener('click',e=>{if(e.target===d){const r=d.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)d.close();}}));
 $('#confirm-dialog').addEventListener('close',()=>{pendingImport=null;pendingDeleteIds=[];});
 // ===== SECTION: Image export and native file sharing =====
-function refreshExport(){
-  const layout=timelineLayout(exportDoc),svg=exportSvg(exportDoc),plan=rasterPlan(layout.width,layout.height);
-  $('#export-preview').innerHTML=svg;
-  $('#raster-notice').textContent=plan.scaled?`PNG：${plan.width}×${plan.height}pxに縮小します。SVGは原寸を保持します。`:`${layout.width}×${layout.height}px。全${exportDoc.events.length}件を一枚に保存します。`;
-  pngPromise=svgToCanvas(svg).then(canvasBlob);pngPromise.catch(()=>{});
+function clearPngPreview(){
+  if(pngPreviewUrl)URL.revokeObjectURL(pngPreviewUrl);
+  pngPreviewUrl=null;
+  pngBlob=null;
+  $('#export-preview').replaceChildren();
+  $('#export-preview').classList.remove('actual-size');
+  $('#png-preview-size').setAttribute('aria-pressed','false');
+  $('#png-preview-size').textContent='原寸で確認';
 }
-$('#export-open').onclick=()=>{exportDoc=structuredClone(currentDoc());refreshExport();$('#export-dialog').showModal();};
-$('#png-save').onclick=async()=>{const b=$('#png-save');b.disabled=true;try{const blob=await pngPromise;download(blob,filename('png'));toast('PNG画像を保存しました。');}catch(e){toast(e.message);}finally{b.disabled=false;}};
+function refreshExport(){
+  clearPngPreview();
+  const layout=timelineLayout(exportDoc),svg=exportSvg(exportDoc),plan=rasterPlan(layout.width,layout.height);
+  $('#raster-notice').textContent=`PNG：${plan.width} × ${plan.height} px${plan.scaled?'（縮小）':''} / SVG：${layout.width} × ${layout.height} px`;
+  const status=$('#png-preview-status'),size=$('#png-preview-size');
+  status.textContent='PNGを作成中…';
+  size.disabled=$('#png-save').disabled=$('#share').disabled=true;
+  const request=svgToCanvas(svg).then(canvasBlob);
+  pngPromise=request;
+  request.then(blob=>{
+    if(pngPromise!==request)return;
+    pngBlob=blob;
+    pngPreviewUrl=URL.createObjectURL(blob);
+    const image=document.createElement('img');
+    image.alt='保存されるPNG画像';
+    image.width=plan.width;
+    image.height=plan.height;
+    image.onload=()=>{if(pngPromise===request){status.textContent='PNGプレビュー';size.disabled=false;}};
+    image.onerror=()=>{if(pngPromise===request)status.textContent='PNGプレビューを表示できませんでした。';};
+    image.src=pngPreviewUrl;
+    $('#export-preview').append(image);
+    $('#png-save').disabled=$('#share').disabled=false;
+  }).catch(()=>{
+    if(pngPromise===request)status.textContent='PNGを作成できませんでした。SVGで保存してください。';
+  });
+}
+$('#export-open').onclick=()=>{exportDoc=structuredClone(currentDoc());$('#export-dialog').showModal();refreshExport();};
+$('#export-dialog').addEventListener('close',()=>{
+  if($('#export-dialog').open)return;
+  pngPromise=null;
+  clearPngPreview();
+});
+$('#png-preview-size').onclick=()=>{
+  const actual=$('#export-preview').classList.toggle('actual-size');
+  $('#png-preview-size').setAttribute('aria-pressed',String(actual));
+  $('#png-preview-size').textContent=actual?'全体を表示':'原寸で確認';
+};
+$('#png-save').onclick=()=>{
+  if(!pngBlob)return;
+  download(pngBlob,filename('png'));
+  toast('PNG画像を保存しました。');
+};
 $('#svg-save').onclick=()=>{download(new Blob([exportSvg(exportDoc)],{type:'image/svg+xml'}),filename('svg'));toast('SVG画像を保存しました。');};
 $('#share').onclick=async()=>{
   try{
-    const blob=await pngPromise,file=new File([blob],filename('png'),{type:'image/png'});
+    if(!pngBlob)return;
+    const file=new File([pngBlob],filename('png'),{type:'image/png'});
     if(navigator.canShare?.({files:[file]})&&navigator.share){await navigator.share({files:[file],title:documentHeading(exportDoc)});toast('共有画面に画像を渡しました。');}
-    else{download(blob,file.name);toast('この端末は直接共有に非対応です。保存した画像をSNSに添付してください。');}
+    else{download(pngBlob,file.name);toast('この端末は直接共有に非対応です。保存した画像をSNSに添付してください。');}
   }catch(e){if(e.name!=='AbortError')toast('共有できませんでした。「PNGで保存」から画像を保存してSNSに添付してください。');}
 };
 // ===== SECTION: Video creation and cleanup =====
@@ -245,4 +333,5 @@ $('#video-create').onclick=async()=>{
 $('#video-save').onclick=()=>{if(videoBlob)download(videoBlob,filename(videoBlob.type.includes('mp4')?'mp4':'webm'));};
 $('#video-dialog').addEventListener('close',()=>{videoController?.abort();$('#video-result').pause();});
 window.addEventListener('pagehide',()=>{stopPlayback();videoController?.abort();if(videoUrl)URL.revokeObjectURL(videoUrl);});
+$('#migration-note').hidden=location.hostname!=='jinsei-yama-tani-maker.nk-pr.com';
 renderEditor();renderPreview();

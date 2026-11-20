@@ -1,5 +1,5 @@
 import {BIRTH_ANCHOR_ID,MIN_SCORE,timelineEvents,NORMAL_EVENT_LIMIT,AGE_GUIDE_WARNING,STORAGE_KEY,emptyDocument,sampleDocument,event,sortedEvents,parseDocument,guideEvents,appendGuide,escapeXml,cleanText,timelineLayout,rasterPlan,playbackPosition,playbackTime,documentHeading,periodLabel,removeEvents,restoreEvents} from './model.js';
-import {timelineSvg,traceGeometry,traceSegments,exportSvg,svgToCanvas,canvasBlob,videoMime,createVideo,cameraSchedule} from './export.js';
+import {timelineSvg,traceGeometry,traceSegments,exportSvg,exportXImage,svgToCanvas,canvasBlob,videoMime,createVideo,cameraSchedule} from './export.js';
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)], esc=escapeXml;
 let doc=emptyDocument(),sample=sampleDocument(),showingSample=true,selectedId=null,guide='turning',toastTimer,undo=null;
 let playRaf=0,playStart=0,playElapsed=0,playing=false,playProgress=1;
@@ -316,6 +316,23 @@ $('#copy-share-caption').onclick = async () => {
     captionField.focus();
     captionField.select();
     toast('選択した投稿文をコピーしてください。');
+  }
+};
+
+$('#x-compose').href = 'https://x.com/intent/tweet?' + new URLSearchParams({text: shareCaption});
+$('#x-image-save').onclick = async () => {
+  const button = $('#x-image-save');
+  const snapshot = exportDoc;
+  button.disabled = true;
+  try {
+    const image = await exportXImage(snapshot);
+    if (exportDoc !== snapshot || !$('#export-dialog').open) return;
+    download(image, '人生年表-X用.jpg');
+    toast('X用のJPEGを保存しました。Xの投稿画面で添付してください。');
+  } catch (error) {
+    if (exportDoc === snapshot && $('#export-dialog').open) toast(error.message);
+  } finally {
+    button.disabled = false;
   }
 };
 

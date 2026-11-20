@@ -72,6 +72,41 @@ export async function svgToCanvas(svg,{maxDimension=8192,maxPixels=16000000}={})
   }finally{URL.revokeObjectURL(url);}
 }
 export function canvasBlob(canvas,type='image/png') {return new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(new Error('画像を作成できませんでした。SVG保存をお試しください。')),type));}
+export function xImageLayout(width, height) {
+  // Bound the entire panorama first, then add padding on its shorter axis.
+  const scale = Math.min(1, 2048 / Math.max(width, height));
+  const contentWidth = Math.max(1, Math.round(width * scale));
+  const contentHeight = Math.max(1, Math.round(height * scale));
+  const frameWidth = Math.max(contentWidth, Math.ceil(contentHeight / 3));
+  const frameHeight = Math.max(contentHeight, Math.ceil(contentWidth / 3));
+  return {
+    width: frameWidth,
+    height: frameHeight,
+    contentWidth,
+    contentHeight,
+    x: Math.floor((frameWidth - contentWidth) / 2),
+    y: Math.floor((frameHeight - contentHeight) / 2)
+  };
+}
+
+export async function exportXImage(doc) {
+  const source = await svgToCanvas(exportSvg(doc), {maxDimension: 2048, maxPixels: 2048 ** 2});
+  const frame = xImageLayout(source.width, source.height);
+  const canvas = document.createElement('canvas');
+  canvas.width = frame.width;
+  canvas.height = frame.height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('画像を作成できませんでした。');
+  ctx.fillStyle = outputDesign(doc.design).paper;
+  ctx.fillRect(0, 0, frame.width, frame.height);
+  ctx.drawImage(source, frame.x, frame.y, frame.contentWidth, frame.contentHeight);
+  for (const quality of [0.92, 0.78, 0.6]) {
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', quality));
+    if (blob?.type === 'image/jpeg' && blob.size > 0 && blob.size < 5_000_000) return blob;
+  }
+  throw new Error('5MB未満のJPEGを作成できませんでした。');
+}
+
 export function videoMime() {
   if(typeof MediaRecorder==='undefined'||typeof HTMLCanvasElement==='undefined'||!HTMLCanvasElement.prototype.captureStream)return null;
   return ['video/mp4;codecs=avc1.42E01E','video/mp4','video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'].find(type=>MediaRecorder.isTypeSupported(type))||null;

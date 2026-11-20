@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {BIRTH_ANCHOR_ID,NORMAL_EVENT_LIMIT,MAX_EVENTS,AGE_GUIDE_WARNING,emptyDocument,event,validateDocument,parseDocument,guideEvents,appendGuide,chartGeometry,sortedEvents,escapeXml,cleanText,timelineLayout,wrapText,rasterPlan,playbackPosition,playbackTime,documentHeading,periodLabel,removeEvents,restoreEvents,layoutSpecs} from '../model.js';
-import {exportSvg,timelineSvg,traceGeometry,drawVideoFrame,cameraState,cameraSchedule,cameraFrameSvg,videoAssetPlan} from '../export.js';
+import {exportSvg,timelineSvg,traceGeometry,drawVideoFrame,cameraState,cameraSchedule,cameraFrameSvg,videoAssetPlan,xImageLayout} from '../export.js';
 
 test('JSON backups round-trip Unicode and negative scores without mutation',()=>{
   const doc={...emptyDocument(),name:'はるか 🏔',events:[event(25,'転機','ひと休み',-10,'気持ちを整えた。\n次の一歩へ。')]};
@@ -289,4 +289,23 @@ test('birth edits persist, stay fixed through deletion, and do not use an ordina
   const restored=parseDocument(JSON.stringify(deleted));
   assert.deepEqual(restored.birth,edited.birth);
   assert.match(exportSvg(restored),/家族の記録/);
+});
+
+
+test('X JPEG fits the whole panorama into bounded dimensions with centered padding',()=>{
+  assert.deepEqual(xImageLayout(8192,1024),{
+    width:2048,height:683,contentWidth:2048,contentHeight:256,x:0,y:213
+  });
+  assert.deepEqual(xImageLayout(1024,8192),{
+    width:683,height:2048,contentWidth:256,contentHeight:2048,x:213,y:0
+  });
+  assert.deepEqual(xImageLayout(1200,630),{
+    width:1200,height:630,contentWidth:1200,contentHeight:630,x:0,y:0
+  });
+  for(const [width,height] of [[8192,1],[1,8192],[2049,2049]]){
+    const frame=xImageLayout(width,height);
+    assert.ok(frame.width <= 2048 && frame.height <= 2048);
+    assert.ok(frame.width <= frame.height*3 && frame.height <= frame.width*3);
+    assert.ok(frame.x+frame.contentWidth <= frame.width && frame.y+frame.contentHeight <= frame.height);
+  }
 });

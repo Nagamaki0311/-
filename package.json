@@ -1,0 +1,11 @@
+{
+  "name": "jinsei-timeline-maker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "python3 dev-server.py",
+    "test": "node --test --test-isolation=none tests/*.test.js",
+    "check": "node --check app.js && node --check model.js && node --check export.js"
+  }
+}

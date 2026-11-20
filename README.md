@@ -1,71 +1,72 @@
-# project001
+# 人生年表メーカー
 
-Claude CodeによるAI開発OS。新規アプリ開発に共通する開発方針・タスク管理・レビュー手順をテンプレートとして提供する。
+名前と人生の節目を入力し、出来事・コメント・気分の折れ線を一枚の年表にする静的Webアプリです。PCは編集とプレビューの2列、スマホは切り替えて利用できます。外部パッケージは使用しません。
 
-## セットアップ
+## 機能
 
-1. `git clone`等でこのリポジトリを取得する。
-2. （任意）`bash .claude/bootstrap.sh`を実行し、Optional Dependency（Agent-Reach/Code Review Graph/Context7/GitHub CLI等）の導入状況を確認する。インストールは行わず案内のみを表示するため、実行しなくてもproject001は完全に動作する。
-3. AGENTS.mdの開発フロー（User → Manager → Planner → Developer → Reviewer → Manager → Complete）に従って進める。
+- 通常の追加・学年・転機のガイドは30件までです。年齢ごとのガイドだけは例外として1〜120歳の節目を追加できます。0歳／誕生は固定の節目で、追加件数には含みません。読み込み・年齢ガイド適用後の保存上限は既存データを含め121件です。件数によっては正常に表示・出力できない場合があるため、選択時と30件超の下書きに注意を表示します。
+- 各節目に時期、出来事、コメント、−10〜10のスコアを記録できます。
+- 年表の見出しは「○○の人生年表」。名前が空なら「わたしの人生年表」です。自由タイトルの入力欄はありません。
+- 個別選択・全選択・選択した節目の一括削除・全削除。削除前に件数を確認し、削除後は一度の操作で元の順序に戻せます。
+- PNG／SVG一枚保存、再編集用JSON、対応ブラウザでMP4またはWebM、対応端末で画像共有。
 
-## 使い方
+出力デザインはA〜Eから選びます。選択はプレビュー、画像、動画に共通で、下書きとJSONにも保存されます。以前のJSONではAを使います。
 
-新規アプリを開発する場合、このリポジトリをコピーして雛形として使う。個別アプリの仕様・実装コードはproject001自体には追加しない。以降はAGENTS.mdの開発フローに従って進める。
+## 左から右へ続くパノラマ
 
-### 新規プロジェクトでの初期化
+年表は折り返さず、0歳／誕生から左から右へ続きます。0歳／誕生の初期スコアは0です。出来事、コメント、スコアを編集して保存できます。年齢は固定で、一括削除でも残ります。旧データに0歳の記録がある場合は、最初の記録の内容とスコアを引き継ぎます。年齢差が3年以上の区間は幅を短縮し、年齢軸の二重斜線で示します。同年齢の記録には同じ年齢座標を使用し、注釈カードだけを横に並べます。吹き出しは時期・出来事・コメントを表示し、スコアはグラフの点に表示します。
 
-`/init-project`コマンド（`.claude/commands/init-project.md`）を実行するか、以下の手順を直接行う。コピー直後にこの手順を行わないと、新規プロジェクトのSessionStart Hookがproject001自身の構築履歴を表示し続けてしまう。docs/のうちtasks.md/progress.md/decisions.mdの3つのみをリセットする。
+スコアは−10〜10の固定の線形尺度です。高さ560pxの描画領域、太い折れ線と薄い面塗りで上下を読みやすくします。数値は編集欄で確認できます。値の意味を変える自動切り詰めや曲線補間は使いません。画像は旧JSONのlayout値にかかわらずパノラマとなり、比率選択は動画設定にだけ表示します。
 
-- `docs/tasks.md`: 「## タスク一覧」表のヘッダ行と区切り行は残し、`T-xxx`の行をすべて削除する。「## バックログ」の既存項目もすべて削除する。列構成は変えない（SessionStart Hookが状態列の値でフィルタするため）。
-- `docs/progress.md`: 「## 記録フォーマット」直後の`---`（この行を含む）より下をすべて削除する。
-- `docs/decisions.md`: 同様に`---`（この行を含む）より下のD-xxxをすべて削除する。
-- 型付き言語を使う場合は、docs/capability-layer.md「派生プロジェクトでの推奨プラグイン」に従ってCode intelligenceプラグインの有効化を検討する（使用言語が未定なら、決まった時点で行う）。
-- （任意）PR作成からマージまでの自動化を使う場合は、docs/agents.md「PR作成からマージまでの自動化」の雛形を、派生プロジェクトのCLAUDE.mdまたは個人設定に追記する。
-- `CLAUDE.md`: project001自身の運用を説明する記述（「Skills / Capability Layer」節など）を派生側の実態に合わせて書き換え、次の2節を追加する。`## コマンド`（ビルド・テスト・lint・起動の実コマンド）と、UIがある場合の`## デザイントークン`（配色・タイポグラフィ・余白。docs/design-workflow.md「デザイントークンの往復」の記録先）。
-- `README.md`: プロジェクト名・概要を書き換える。本節「### 新規プロジェクトでの初期化」自体は削除してよい。
+全文を一枚に保持します。画像は非常に横長になることがあり、画面では横スクロール・倍率変更・全体表示で確認できます。PNGは最大8192px／1600万画素に収めて縮小し、保存前に寸法と縮小を明示します。SVGは全内容と原寸を保持します。年齢ごとの大量の節目を大きく読む場合はSVGを利用してください。
 
-## 構成
+## 操作画面の整理
 
-- AGENTS.md
-  - 開発方針・設計原則・ワークフロー（全AIエージェント共通、最優先で読む）
+ヘルプは円内の「?」で表示し、押せる範囲は44px、アクセシブル名とtitleは「使い方」です。±・再生・閉じる・全体表示は意味の明瞭な記号を使い、保存形式や削除は文字を残します。重複した保存状態・プレビュー見出し・再生説明を減らし、余白は8/12/16/24pxを基準にそろえました。日本語ゴシックの端末内フォントを使い、本文14px、ラベル12px、補足11px、操作の太さ600〜700を基本としています。サンプル文も具体的な出来事へ置き換え、利用者の入力文は変更しません。
 
-- REVIEW.md
-  - レビュー方針（敵対的検証 / Adversarial Review）。reviewer Agentが従う
+## 動画
 
-- CLAUDE.md
-  - Claude Code固有の設定・運用ルール（AGENTS.mdをimportする）
+画像の全体表示とは別の見せ方です。左端の最初の点から始まり、カメラが年齢順に折れ線の上下を追います。各節目に到達すると、その出来事・コメントを表示し、読みやすい大きさで停止します。短いカードは中央に配置し、長いコメントは下へ移動して最後まで表示します。パノラマ上の点とカードを順に追います。
 
-- .claude/agents
-  - planner / designer / researcher / developer / reviewer
+動画の長さは節目数とコメント量から計算し、作成前に表示します。最後に約1.4秒の停止時間があります。画像やコメントを毎フレーム作り直さず、背景と各カードを一度だけ画像化して再利用します。合計画像メモリの見積もりが上限を超える年表は、生成前にエラーとPNG／SVG保存の案内を表示します。記録は変更しません。
 
-- .claude/skills/design-principles
-  - UI/UXデザインの品質判断基準（designer/developer/reviewerが使用）
+WebCodecs対応ブラウザでは毎秒24フレームで書き出します。各フレームの再生時刻を指定するため、作成に時間がかかっても映像は予定どおり進みます。MP4に対応していればMP4を、ほかの対応環境ではWebMを作成します。WebCodecsで対応する形式がない環境では、`MediaRecorder` と `canvas.captureStream` が利用できる場合に録画で作成します。録画中にページが非表示になったり描画が停止したりすると、作成を中断します。音声・GIF出力には対応していません。
 
-- .claude/settings.json
-  - SessionStart / PreCompact / PostToolUse / SubagentStop / SessionEnd Hook（セッション継続性・ドキュメント品質の補助）、subagentStatusLine（サブエージェント進捗の可視化）、enabledPlugins（Frontend Designをproject scopeで有効化）。詳細はdocs/agents.md・docs/design-workflow.md
+動画ファイルの組み立てにはローカル配信の [Mediabunny](vendor/README.md) を使用します。
 
-- .claude/bootstrap.sh
-  - Optional Dependency（Capability Layer）の導入状況を案内のみで表示する検出スクリプト。インストールは行わない
+## 起動と検証
 
-- .claude/commands/init-project.md
-  - `/init-project`コマンド。新規プロジェクトでの初期化手順（本READMEの該当節）を実行する
+Python 3で起動できます。ビルドや依存パッケージのインストールは不要です。
 
-- docs
-  - tasks.md: タスクと状態管理
-  - progress.md: 作業履歴
-  - decisions.md: 設計判断の記録
-  - agents.md: Agent構成・モデル構成・Hook/Status Line構成の詳細
-  - agent-reach.md: [Agent-Reach](https://github.com/Panniantong/Agent-Reach) 対応（Optional Dependency、検出・フォールバック方針）
-  - code-review-graph.md: [Code Review Graph](https://github.com/tirth8205/code-review-graph) 対応（Optional Dependency、影響範囲解析）
-  - context7.md: [Context7](https://github.com/upstash/context7) 対応（Optional Dependency、ライブラリドキュメント確認）
-  - capability-layer.md: 外部ツール検出の共通規約（Capability Layer）
-  - research-workflow.md: 外部調査ワークフロー
-  - design-workflow.md: デザインワークフロー（Designer/Claude Design/Frontend Designプラグインの連携）
-  - status-line.md: サブエージェント進捗の可視化（Status Line）の仕様
+```sh
+python3 dev-server.py
+# http://localhost:3000
+```
 
-## 開発フロー
+Node.js 22以降では以下も利用できます。
 
-User → Manager → Planner → Developer → Reviewer → Manager → Complete
-（外部調査が必要な場合のみResearcherが、UI/UX実装を伴う場合のみDesignerが加わる）
+```sh
+npm run dev
+npm test
+npm run check
+```
 
-詳細は AGENTS.md・REVIEW.md・docs/agents.md・docs/design-workflow.md を参照。
+開発サーバーは `--port 4173 --host 127.0.0.1 --strictPort` に対応します。ES Modulesを利用するため、HTMLを直接開かずHTTPで配信してください。
+
+## 保存とプライバシー
+
+下書きはブラウザのlocalStorageに自動保存します。入力データのアップロード、通信API、アクセス解析、外部フォントはありません。画像・動画も端末内で生成します。CSPは `connect-src 'none'` です。共有ボタンを押した場合だけOSの共有シートへ画像を渡し、投稿先と送信は利用者が選びます。非対応の場合はPNGを保存して手動で添付できます。
+
+ブラウザの保存データ削除やプライベートモード終了で下書きが失われることがあります。大切な記録はJSONでも保存してください。サンプルは下書きと別データで、表示中のサンプルを書き出す場合は明示します。
+
+JSONはバージョン1、250KBまで。値域・文字数・ID・不正な制御文字を検証してから読込み確認を表示します。以前の自由タイトルはバックアップの互換性のため保持しますが、表示や画像・動画には使用しません。以前の100件の下書きも切り捨てず、そのまま読み込めます。30件を超えるデータでも編集・削除・保存・取り消しは利用できますが、通常の追加では30件上限を解除しません。
+
+## 公開
+
+GitHub Pagesを使用する場合はmainへの反映後、Settings → Pages → Deploy from a branch → main / (root)を設定します。相対パスのため `/-/` 配下でも動作します。Sitesの公開設定は配信用チェックアウトで管理しています。
+
+## 検証の範囲
+
+`tests/model.test.js` に保存形式、入力境界、ガイド、通常30件と年齢ガイドの上限例外、連続年齢軸、空状態、吹き出しと線の非交差、一括削除と復元、見出し、カメラ移動・段階表示・長文パン・メモリ上限・動画の再生時刻を検証するテストがあります。`cameraFrameSvg` は実動画と同じカメラ計算・表示対象を使う描画確認用APIです。
+
+管理プレビュー基盤に制限があり、実ブラウザでのPNG保存・動画のエンコード／再生・スマホ操作は未検証です。構文確認、モデル／描画処理のテスト、SVGの実描画とカメラキーフレームの確認とは区別します。

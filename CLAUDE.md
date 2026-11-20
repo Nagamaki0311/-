@@ -38,3 +38,15 @@ Skills（`.claude/skills/`配下のSKILL.md）は、再利用可能な具体的�
 - docs/decisions.md: 設計判断、採用理由、変更履歴
 - docs/agents.md: Agent構成、モデル構成、オーケストレーションルール、Hook構成
 - docs/status-line.md: サブエージェント進捗の可視化（Status Line）の仕様
+
+
+## 人生年表メーカーのコマンド
+
+- 起動: `python3 dev-server.py` または `npm run dev`
+- テスト: `npm test`（Node.js 22以降、外部依存なし）
+- 構文確認: `npm run check`
+- ビルド: 不要。ルートのHTML / CSS / JSを静的配信する。
+
+## デザイントークン
+
+`styles.css` の `:root` が定義元。インク `#1b2940`、紙 `#fffef9`、背景 `#f4f1e9`、黄色 `#ffda55`、赤 `#e65943`。日本語は端末内のゴシック体、見出しは太め、本文は読みやすい行間。基本余白は8px単位、細部は4px単位。詳細は `docs/design.md` を参照する。

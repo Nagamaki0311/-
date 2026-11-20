@@ -136,3 +136,4 @@ designerエージェントが関与したタスクでは、上記に加えて以
 - テスト観点を確認済み
 
 満たさない場合はManagerへ差し戻し理由を返す。ManagerがDeveloperへ差し戻す（修正ループはAGENTS.md参照）。承認するまでDeveloper→Reviewerを繰り返す。
+

@@ -1,4 +1,4 @@
-import {BIRTH_ANCHOR_ID,MIN_SCORE,SCORE_TICKS,timelineEvents,NORMAL_EVENT_LIMIT,AGE_GUIDE_WARNING,STORAGE_KEY,emptyDocument,sampleDocument,event,sortedEvents,parseDocument,guideEvents,appendGuide,escapeXml,cleanText,timelineLayout,rasterPlan,playbackPosition,playbackTime,documentHeading,periodLabel,removeEvents,restoreEvents} from './model.js';
+import {BIRTH_ANCHOR_ID,MIN_SCORE,timelineEvents,NORMAL_EVENT_LIMIT,AGE_GUIDE_WARNING,STORAGE_KEY,emptyDocument,sampleDocument,event,sortedEvents,parseDocument,guideEvents,appendGuide,escapeXml,cleanText,timelineLayout,rasterPlan,playbackPosition,playbackTime,documentHeading,periodLabel,removeEvents,restoreEvents} from './model.js';
 import {timelineSvg,traceGeometry,traceSegments,exportSvg,svgToCanvas,canvasBlob,videoMime,createVideo,cameraSchedule} from './export.js';
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)], esc=escapeXml;
 let doc=emptyDocument(),sample=sampleDocument(),showingSample=true,selectedId=null,guide='turning',toastTimer,undo=null;
@@ -150,29 +150,6 @@ function updateBoardProgress(progress,activeId){
     highlightedId=activeId;
   }
 }
-function updateScoreOverlay(){
-  const viewport=$('#board-viewport'),overlay=$('#score-overlay');
-  const axisX=previewLayout?.box.x*boardZoom-16*boardZoom;
-  overlay.hidden=!previewLayout||viewport.scrollLeft<=0||viewport.scrollLeft<axisX;
-  if(!overlay.hidden){
-    overlay.style.height=`${viewport.clientHeight}px`;
-    overlay.firstElementChild.style.transform=`translateY(${-viewport.scrollTop}px)`;
-  }
-}
-function renderScoreOverlay(){
-  const overlay=$('#score-overlay');
-  const track=document.createElement('div');
-  const ticks=SCORE_TICKS;
-  for(const value of ticks){
-    const tick=document.createElement('span');
-    tick.textContent=value;
-    tick.style.top=`${(previewLayout.box.y+(10-value)/(10-previewLayout.low)*previewLayout.box.height)*boardZoom}px`;
-    track.append(tick);
-  }
-  overlay.replaceChildren(track);
-  updateScoreOverlay();
-}
-$('#board-viewport').addEventListener('scroll',updateScoreOverlay,{passive:true});
 function applyZoom(preserveCenter=true){
   if(!previewLayout)return;
   const viewport=$('#board-viewport'),board=$('#chart'),oldWidth=board.getBoundingClientRect().width||previewLayout.width*boardZoom;
@@ -180,7 +157,6 @@ function applyZoom(preserveCenter=true){
   board.style.width=`${previewLayout.width*boardZoom}px`;
   $('#zoom-value').value=`${Math.round(boardZoom*100)}%`;
   if(preserveCenter){viewport.scrollLeft=cx*ratio-viewport.clientWidth/2;viewport.scrollTop=cy*ratio-viewport.clientHeight/2;}
-  renderScoreOverlay();
 }
 let jumpEventsKey='';
 function renderPreview(){

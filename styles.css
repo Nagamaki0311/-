@@ -32,8 +32,6 @@ main{max-width:1600px;margin:16px auto 0;padding:0 24px}.workspace{display:grid;
 .milestone-jump{display:flex;align-items:center;gap:8px;margin:8px 0;font-size:12px}
 .milestone-jump select{flex:1;min-width:0;min-height:44px;font-size:16px}
 .board-frame{position:relative}
-.score-overlay{position:absolute;z-index:1;pointer-events:none;overflow:hidden;top:1px;left:1px;width:32px}
-.score-overlay span{position:absolute;left:0;right:0;transform:translateY(-50%);border-radius:0 4px 4px 0;background:#172f44;color:white;text-align:center;font-size:12px;line-height:1.4}
 .png-preview-controls{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:12px}
 .png-preview-controls p{font-size:12px;margin:0}
 .export-preview img{display:block;max-width:100%;height:auto}

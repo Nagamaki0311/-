@@ -152,7 +152,7 @@ function eventCard(record,index,cardWidth) {
   return {...record,index,width:cardWidth,height,periodLines,titleLines,commentLines};
 }
 export function timelineLayout(doc) {
-  const list=timelineEvents(doc),pad=64,cardWidth=280,cardGap=24,plotHeight=560;
+  const list=timelineEvents(doc),pad=64,cardWidth=280,cardGap=18,groupClearance=48,plotHeight=560;
   const cards=list.map((record,index)=>eventCard(record,index,cardWidth));
   const groups=[];
   for(const card of cards){
@@ -162,12 +162,12 @@ export function timelineLayout(doc) {
   }
   for(const group of groups)group.width=group.cards.length*(cardWidth+cardGap)-cardGap;
   const minAge=0,maxAge=groups.at(-1).age;
-  const ageScale=cardWidth+64,breaks=[];
+  const ageScale=cardWidth+groupClearance,breaks=[];
   let span=0;
   groups[0].offset=0;
   for(let i=1;i<groups.length;i++){
     const previous=groups[i-1],current=groups[i],gap=current.age-previous.age;
-    const distance=Math.max(ageScale*(gap>=3?1.5:gap),(previous.width+current.width)/2+64);
+    const distance=Math.max(ageScale*(gap>=3?1.5:gap),(previous.width+current.width)/2+groupClearance);
     if(gap>=3)breaks.push({from:previous.age,to:current.age,offset:span+distance/2});
     span+=distance;
     current.offset=span;
@@ -189,8 +189,6 @@ export function timelineLayout(doc) {
     });
   }
   const height=Math.ceil(box.y+plotHeight+100+Math.max(100,...bubbles.map(bubble=>bubble.height))+48);
-  const byPoint=new Map();for(const point of points){const key=point.age+':'+point.score;byPoint.set(key,(byPoint.get(key)||0)+1);}
-  for(const point of points)point.coincident=byPoint.get(point.age+':'+point.score);
   const row={index:0,y:headerHeight,height:height-headerHeight-48,minAge,maxAge,box,eventIds:list.map(record=>record.id)};
   return {design:doc.design,width,height,pad,headerHeight,heading:documentHeading(doc),titleLines,nameLines:[],rows:[row],points,bubbles,low,minAge,maxAge,box,ageScale,breaks:breaks.map(gap=>({...gap,x:firstX+gap.offset})),panorama:true,folded:false};
 }

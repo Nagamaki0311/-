@@ -81,7 +81,7 @@ test('all image formats preserve a single readable panorama, even with 121 age e
     assert.doesNotMatch(svg,/次の段へ|data-timeline-row|NaN|Infinity/);
     assert.equal((svg.match(/data-kind="bubble"/g)||[]).length,amount+1);
     assert.ok(board.box.height>=560,'the fixed score range has enough vertical room to show rises and falls');
-    for(let i=1;i<board.points.length;i++)if(board.points[i].age>board.points[i-1].age)assert.ok(board.points[i].x-board.points[i-1].x>=343.9,'normal yearly points must have readable separation');
+    for(let i=1;i<board.points.length;i++)if(board.points[i].age>board.points[i-1].age)assert.ok(board.points[i].x-board.points[i-1].x>=327.9,'normal yearly points must have readable separation');
     for(const bubble of board.bubbles){assert.equal(bubble.titleLines.join(''),bubble.title);assert.equal(bubble.commentLines.join(''),bubble.comment);}
     if(amount)assert.equal((traceGeometry(board,1).path.match(/M/g)||[]).length,1);
     for(const layout of ['square','portrait'])assert.deepEqual(timelineLayout({...doc,layout}),board,'video aspect choices must not alter image layout');
@@ -214,7 +214,7 @@ test('same-age camera holds remain readable and very long comments pan to their 
 });
 test('video prepares bounded cached assets and uses the same camera transform as frame previews',()=>{
   const doc={...emptyDocument(),events:[event(0,'','FIRST',0),event(20,'','LAST',10)]},board=timelineLayout(doc),scene=cameraSchedule(board).scenes[1],elapsed=scene.start+scene.move+scene.hold*.5;
-  const images=[],transforms=[],ctx={canvas:{width:1600,height:1000},fillRect(){},drawImage(...args){images.push(args);},save(){},translate(...args){transforms.push(args);},scale(){},restore(){},beginPath(){},moveTo(){},lineTo(){},stroke(){},arc(){},fill(){},strokeText(){},fillText(){}};
+  const images=[],transforms=[],ctx={canvas:{width:1600,height:1000},fillRect(){},drawImage(...args){images.push(args);},save(){},translate(...args){transforms.push(args);},scale(){},restore(){},beginPath(){},moveTo(){},lineTo(){},stroke(){},arc(){},fill(){},strokeText(){assert.fail("Video must not draw score labels");},fillText(){assert.fail("Video must not draw score labels");}};
   const assets={base:{},cards:board.bubbles.map(()=>({}))},state=drawVideoFrame(ctx,board,assets,elapsed),expected=cameraState(board,elapsed,1.6);
   assert.deepEqual(state.camera,expected.camera);assert.deepEqual(transforms[0],[-expected.camera.x,-expected.camera.y]);assert.equal(images.length,3);
   assert.ok(videoAssetPlan(board).allowed);
@@ -240,7 +240,7 @@ test('legacy age-zero records migrate to editable birth without losing data, and
   const card=svg.match(/<g [^>]*data-kind="bubble"[^>]*>[\s\S]*?<\/g>/)[0];
   assert.match(card,/0歳 \/ 誕生 \/ 乳児期/);
   assert.doesNotMatch(card,/<circle|\+4|>01</);
-  assert.match(svg,/\+4/);
+  assert.doesNotMatch(svg,/>[+−-]?\d+<|−10〜10/);
 });
 
 test('age and school guide imports do not consume a slot for the fixed birth origin',()=>{

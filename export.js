@@ -130,11 +130,16 @@ export function cameraSchedule(layout){
     const move=index?1100:700,hold=Math.max(2200,Math.min(18000,1700+bubble.title.length*24+bubble.comment.length*34+bubble.commentLines.length*80));
     const scene={index,start,move,hold,end:start+move+hold};start=scene.end;return scene;
   });
-  return {scenes,duration:Math.max(2200,start+1400)};
+  const outro=scenes.length?{start,move:1200,hold:1400}:null;
+  return {scenes,outro,duration:outro?start+outro.move+outro.hold:2200};
+}
+function fullBoardCamera(layout,aspect){
+  const width=Math.max(layout.width,layout.height*aspect),height=width/aspect;
+  return {x:(layout.width-width)/2,y:(layout.height-height)/2,width,height};
 }
 function cameraTarget(layout,index,aspect,pan=0,reading=false){
   const bubble=layout.bubbles[index],point=layout.points[index];
-  if(!bubble||!point)return {x:0,y:0,width:layout.width,height:layout.height};
+  if(!bubble||!point)return fullBoardCamera(layout,aspect);
   if(!reading){const height=650,width=height*aspect;return {x:Math.max(0,Math.min(layout.width-width,point.x-width/2)),y:Math.max(0,Math.min(layout.height-height,point.y-height/2)),width,height};}
   const height=Math.min(650,Math.max(400,bubble.height+140)),width=Math.max(bubble.width+100,height*aspect),actualHeight=width/aspect;
   const top=bubble.height+80<=actualHeight?bubble.y+bubble.height/2-actualHeight/2:bubble.y-40;
@@ -142,9 +147,15 @@ function cameraTarget(layout,index,aspect,pan=0,reading=false){
   return {x:bubble.x+bubble.width/2-width/2,y:top+(bottom-top)*pan,width,height:actualHeight};
 }
 function blendCamera(from,to,progress){const result={};for(const key of ['x','y','width','height'])result[key]=from[key]+(to[key]-from[key])*progress;return result;}
-export function cameraState(layout,elapsed,aspect=1.6,{scenes,duration}=cameraSchedule(layout)){
-  if(!scenes.length)return {camera:{x:0,y:0,width:layout.width,height:layout.height},index:-1,revealed:-1,progress:1,complete:elapsed>=duration,duration};
-  const scene=scenes.find(item=>elapsed<item.end)||scenes.at(-1),local=Math.max(0,elapsed-scene.start);
+export function cameraState(layout,elapsed,aspect=1.6,{scenes,outro,duration}=cameraSchedule(layout)){
+  if(!outro)return {camera:fullBoardCamera(layout,aspect),index:-1,revealed:-1,progress:1,complete:elapsed>=duration,duration};
+  if(elapsed>=outro.start){
+    const time=Math.min(1,(elapsed-outro.start)/outro.move),index=scenes.at(-1).index;
+    const full=fullBoardCamera(layout,aspect);
+    const camera=time===1?full:blendCamera(cameraTarget(layout,index,aspect,1,true),full,ease(time));
+    return {camera,index,revealed:index,progress:1,complete:elapsed>=duration,duration,moving:time<1};
+  }
+  const scene=scenes.find(item=>elapsed<item.end),local=Math.max(0,elapsed-scene.start);
   const moving=local<scene.move,previous=Math.max(0,scene.index-1),travel=Math.min(1,local/scene.move);
   const previousPoint=cameraTarget(layout,previous,aspect),nextPoint=cameraTarget(layout,scene.index,aspect);
   let camera,position;

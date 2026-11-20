@@ -212,6 +212,38 @@ test('same-age camera holds remain readable and very long comments pan to their 
   const start=cameraState(board,scene.move+scene.hold*.2),end=cameraState(board,scene.end);
   assert.ok(end.camera.y>start.camera.y);assert.ok(end.camera.y+end.camera.height>=board.bubbles[0].y+board.bubbles[0].height);
 });
+test('video pulls back from the final comment and holds the entire centered timeline in every format',()=>{
+  const doc={...emptyDocument(),events:[event(6),event(9),event(16,'','最後の節目',-6,'長文\n'.repeat(85))]};
+  const board=timelineLayout(doc),schedule=cameraSchedule(board),{outro,duration}=schedule;
+  const finalScene=schedule.scenes.at(-1),lastBubble=board.bubbles.at(-1);
+  assert.equal(outro.start,finalScene.end);
+  assert.equal(duration,outro.start+outro.move+outro.hold);
+  assert.equal(outro.hold,1400);
+  const lastFrame=(Math.ceil(duration*24/1000)-1)*1000/24;
+  for(const {ratio,width,height} of Object.values(layoutSpecs)){
+    const reading=cameraState(board,outro.start-.01,ratio,schedule);
+    const first=cameraState(board,outro.start,ratio,schedule);
+    const middle=cameraState(board,outro.start+outro.move/2,ratio,schedule);
+    const end=cameraState(board,outro.start+outro.move,ratio,schedule);
+    const last=cameraState(board,lastFrame,ratio,schedule);
+    assert.ok(reading.camera.y+reading.camera.height>=lastBubble.y+lastBubble.height);
+    for(const key of ['x','y','width','height'])assert.ok(Math.abs(reading.camera[key]-first.camera[key])<.01);
+    assert.ok(first.camera.width<middle.camera.width&&middle.camera.width<end.camera.width);
+    assert.ok(middle.moving&&!end.moving);
+    assert.ok(end.camera.x<=0&&end.camera.y<=0);
+    assert.ok(end.camera.x+end.camera.width>=board.width-.01&&end.camera.y+end.camera.height>=board.height-.01);
+    assert.ok(Math.abs(end.camera.x+end.camera.width/2-board.width/2)<.01);
+    assert.ok(Math.abs(end.camera.y+end.camera.height/2-board.height/2)<.01);
+    for(const state of [first,middle,end,last]){
+      assert.ok(Math.abs(state.camera.width/state.camera.height-ratio)<.000001);
+      assert.equal(state.revealed,lastBubble.index);
+      assert.equal(state.progress,1);
+    }
+    assert.deepEqual(last.camera,end.camera);
+    const svg=cameraFrameSvg(doc,lastFrame,{aspect:ratio,width,height});
+    assert.equal((svg.match(/data-kind="bubble"/g)||[]).length,board.bubbles.length);
+  }
+});
 test('video prepares bounded cached assets and uses the same camera transform as frame previews',()=>{
   const doc={...emptyDocument(),events:[event(0,'','FIRST',0),event(20,'','LAST',10)]},board=timelineLayout(doc),scene=cameraSchedule(board).scenes[1],elapsed=scene.start+scene.move+scene.hold*.5;
   const images=[],transforms=[],ctx={canvas:{width:1600,height:1000},fillRect(){},drawImage(...args){images.push(args);},save(){},translate(...args){transforms.push(args);},scale(){},restore(){},beginPath(){},moveTo(){},lineTo(){},stroke(){},arc(){},fill(){},strokeText(){assert.fail("Video must not draw score labels");},fillText(){assert.fail("Video must not draw score labels");}};

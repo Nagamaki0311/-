@@ -23,7 +23,13 @@ function ensureOwn(){if(showingSample){showingSample=false;selectedId=null;stopP
 function commit(){ensureOwn();persist();renderPreview();}
 function download(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);}
 function filename(ext,page=''){return `人生年表${page?'_'+page:''}.${ext}`;}
-function setMobileView(view){document.body.dataset.mobileView=view;$('#tab-edit').classList.toggle('active',view==='edit');$('#tab-preview').classList.toggle('active',view==='preview');$('#tab-edit').setAttribute('aria-pressed',view==='edit');$('#tab-preview').setAttribute('aria-pressed',view==='preview');}
+function setMobileView(view){
+  const tabs=$('.mobile-tabs');
+  const stickyTop=parseFloat(getComputedStyle(tabs).top);
+  const returnToTabs=tabs.getClientRects().length&&window.scrollY>0&&tabs.getBoundingClientRect().top<=stickyTop;
+  document.body.dataset.mobileView=view;$('#tab-edit').classList.toggle('active',view==='edit');$('#tab-preview').classList.toggle('active',view==='preview');$('#tab-edit').setAttribute('aria-pressed',view==='edit');$('#tab-preview').setAttribute('aria-pressed',view==='preview');
+  if(returnToTabs)window.scrollTo(0,0);
+}
 $('#tab-edit').onclick=()=>setMobileView('edit');$('#tab-preview').onclick=()=>setMobileView('preview');
 // ===== SECTION: Editor and guides =====
 function renderEditor(){

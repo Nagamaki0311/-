@@ -5,7 +5,7 @@ const designs = {
   A: {paper:'#ffffff', plot:'#ffffff', ink:'#14171c', line:'#2456d3', grid:'#dde2e7', edge:'#c9d2e0', muted:'#505a65', cards:['#f8fafd'], radius:4, font:sans, shadow:false, opacity:.10, weight:700},
   B: {paper:'#101824', plot:'#101824', ink:'#f5f7fa', line:'#ffce61', grid:'#34465c', edge:'#526680', muted:'#b9c6d8', cards:['#1c293a'], radius:6, font:sans, shadow:false, opacity:.11, weight:700},
   C: {paper:'#ecf4f2', plot:'#ecf4f2', ink:'#15302b', line:'#15785e', grid:'#bbccc6', edge:'#a2bfb3', muted:'#45635a', cards:['#fafffd'], radius:0, font:serif, shadow:false, opacity:.13, weight:700},
-  D: {paper:'#eff5ff', plot:'#ffffff', ink:'#221344', line:'#db2169', grid:'#c5cfe3', edge:'#382567', muted:'#49376b', cards:['#fff36a','#9cefff','#ffc3eb','#bdf084'], radius:14, font:sans, shadow:true, opacity:.10, weight:900},
+  D: {paper:'#eff5ff', plot:'#ffffff', ink:'#221344', line:'#db2169', grid:'#c5cfe3', edge:'#382567', muted:'#49376b', cards:['#fff36a','#9cefff','#ffc3eb','#bdf084'], radius:14, font:sans, shadow:true, opacity:0, weight:900},
   E: {paper:'#101719', plot:'#131e21', ink:'#e2f0ef', line:'#55df9a', down:'#ff7d86', grid:'#2e4547', edge:'#597377', muted:'#a7c0bf', cards:['#172528'], radius:0, font:'ui-monospace, monospace', shadow:false, opacity:0, weight:700}
 };
 function outputDesign(id) {return Object.hasOwn(designs,id) ? designs[id] : designs.A;}

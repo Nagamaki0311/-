@@ -13,7 +13,7 @@ main{max-width:1600px;margin:16px auto 0;padding:0 24px}.workspace{display:grid;
 /* ===== SECTION: Narrow screens ===== */
 @media(max-width:1100px){.workspace{grid-template-columns:minmax(300px,350px) minmax(0,1fr);gap:24px}.board-tools{align-items:start;flex-direction:column}.board-zoom{align-self:flex-end}}
 @media(max-width:850px){.header{padding:0 16px}.brand{font-size:16px}.brand-light{font-size:12px}main{margin-top:12px;padding:0 16px}.mobile-tabs{display:flex;gap:4px;border:1px solid #c3d0c3;background:#e9ede3;border-radius:5px;padding:4px;margin-bottom:12px;position:sticky;top:8px;z-index:5}.mobile-tabs button{width:50%;min-height:44px;font-size:12px;font-weight:600;border-radius:4px}.mobile-tabs button.active{background:var(--ink);color:white}.workspace{display:block}.preview-panel{display:none}body[data-mobile-view=preview] .editor{display:none}body[data-mobile-view=preview] .preview-panel{display:block}.guide-settings input,.profile-fields input,.event-fields input,.event-fields textarea{font-size:16px}.bulk-tools button{min-height:44px}.board-tools{gap:8px}.board-zoom{width:100%;justify-content:center}.board-viewport{height:67dvh;min-height:350px}.footer{padding:8px 16px;margin-top:8px}dialog{padding:16px}.dialog-actions>*{flex:1}.output-layouts button{padding:8px 4px;gap:4px}}
-@media(max-width:380px){.bulk-tools{gap:4px}.export-actions{grid-template-columns:1fr}.output-layouts small{display:none}.board-info{flex-wrap:wrap}}
+@media(max-width:380px){.bulk-tools{gap:4px}.export-actions{grid-template-columns:1fr}.board-info{flex-wrap:wrap}}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
 
 .output-designs{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px}
@@ -36,3 +36,27 @@ main{max-width:1600px;margin:16px auto 0;padding:0 24px}.workspace{display:grid;
 .png-preview-controls p{font-size:12px;margin:0}
 .export-preview img{display:block;max-width:100%;height:auto}
 .export-preview.actual-size img{max-width:none}
+
+/* Keep narrow controls within the page and let only the timeline scroll sideways. */
+@media(max-width:850px){
+  .mobile-tabs button{flex:1;min-width:0;width:auto}
+  .event-select-label{flex-basis:44px}
+  .event-toggle-body small,.event-toggle-body b{white-space:normal;overflow-wrap:anywhere}
+  .event-two-fields{grid-template-columns:minmax(0,80px) minmax(0,1fr)}
+  .board-info,.board-zoom,.data-tools,.png-preview-controls{flex-wrap:wrap}
+  .board-zoom button{min-width:44px}
+  #reset-play{min-width:44px}
+  .board-viewport{height:min(67dvh,700px);min-height:min(350px,55dvh)}
+  .export-actions{grid-template-columns:minmax(0,1fr) auto}
+  .dialog-actions>*{flex:1 1 auto;min-width:0}
+  .output-layouts{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .output-layouts button{flex-wrap:wrap}
+  .output-layouts small{flex-basis:100%;text-align:center}
+  .toast{bottom:max(12px,env(safe-area-inset-bottom))}
+  .toast button,#share-caption summary{min-height:44px}
+  .toast button{margin-left:8px}
+  dialog{max-height:calc(100dvh - 24px);overscroll-behavior:contain}
+}
+@media(max-width:380px){
+  .export-actions{grid-template-columns:minmax(0,1fr)}
+}

@@ -60,3 +60,6 @@ main{max-width:1600px;margin:16px auto 0;padding:0 24px}.workspace{display:grid;
 @media(max-width:380px){
   .export-actions{grid-template-columns:minmax(0,1fr)}
 }
+
+#x-image-save,#x-compose{min-height:44px}
+#x-compose{display:inline-flex;align-items:center;justify-content:center;color:inherit;text-align:center;text-decoration:none}

@@ -27,13 +27,18 @@ function textLines(lines,x,y,size,{weight=400,fill,lineHeight=size*1.5}={}) {
   return `<text x="${x}" y="${y}" font-size="${size}" font-weight="${weight}"${fill?` fill="${fill}"`:''}>${lines.map((line,i)=>`<tspan x="${x}" dy="${i?lineHeight:0}">${esc(line)}</tspan>`).join('')}</text>`;
 }
 export function traceGeometry(layout,progress=1) {
-  const {points}=layout,{index,fraction}=playbackPosition(points.length,progress);
-  const visible=points.slice(0,index+1).map(point=>({...point}));
-  if(points[index+1]){const a=points[index],b=points[index+1];visible.push({...b,x:a.x+(b.x-a.x)*fraction,y:a.y+(b.y-a.y)*fraction});}
+  const {index,visible:points}=tracePoints(layout.points,progress);
+  const visible=points.map(point=>({...point}));
   const tip=visible.at(-1)||null,path=visible.map((point,i)=>`${i?'L':'M'}${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(' ');
   const zeroY=layout.box.y+10/(10-layout.low)*layout.box.height;
   const area=visible.length?`${path} L${tip.x} ${zeroY} L${visible[0].x} ${zeroY} Z`:'';
   return {path,area,tip,index,visible};
+}
+function tracePoints(points,progress) {
+  const {index,fraction}=playbackPosition(points.length,progress);
+  const visible=points.slice(0,index+1);
+  if(points[index+1]){const a=points[index],b=points[index+1];visible.push({...b,x:a.x+(b.x-a.x)*fraction,y:a.y+(b.y-a.y)*fraction});}
+  return {index,visible};
 }
 export function timelineSvg(doc,{layout=timelineLayout(doc),interactive=false,selectedId='',progress=1,showLine=true,maxVisibleIndex=Infinity,showGhost=true}={}) {
   const {width,height,pad,points,bubbles,low,box,minAge,maxAge}=layout,trace=traceGeometry(layout,progress);
@@ -107,9 +112,15 @@ export async function exportXImage(doc) {
   throw new Error('5MB未満のJPEGを作成できませんでした。');
 }
 
-export function videoMime() {
+function mediaRecorderMime() {
   if(typeof MediaRecorder==='undefined'||typeof HTMLCanvasElement==='undefined'||!HTMLCanvasElement.prototype.captureStream)return null;
   return ['video/mp4;codecs=avc1.42E01E','video/mp4','video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'].find(type=>MediaRecorder.isTypeSupported(type))||null;
+}
+function canUseWebCodecs(){return typeof VideoEncoder!=='undefined'&&typeof VideoFrame!=='undefined';}
+export function videoSupport(){
+  if(canUseWebCodecs())return 'MP4またはWebM';
+  const mime=mediaRecorderMime();
+  return mime?(mime.includes('mp4')?'MP4':'WebM'):null;
 }
 // ===== SECTION: Camera path and progressive event reveal shared by video and native frame previews =====
 const ease=value=>value*value*(3-2*value);
@@ -131,8 +142,7 @@ function cameraTarget(layout,index,aspect,pan=0,reading=false){
   return {x:bubble.x+bubble.width/2-width/2,y:top+(bottom-top)*pan,width,height:actualHeight};
 }
 function blendCamera(from,to,progress){const result={};for(const key of ['x','y','width','height'])result[key]=from[key]+(to[key]-from[key])*progress;return result;}
-export function cameraState(layout,elapsed,aspect=1.6){
-  const {scenes,duration}=cameraSchedule(layout);
+export function cameraState(layout,elapsed,aspect=1.6,{scenes,duration}=cameraSchedule(layout)){
   if(!scenes.length)return {camera:{x:0,y:0,width:layout.width,height:layout.height},index:-1,revealed:-1,progress:1,complete:elapsed>=duration,duration};
   const scene=scenes.find(item=>elapsed<item.end)||scenes.at(-1),local=Math.max(0,elapsed-scene.start);
   const moving=local<scene.move,previous=Math.max(0,scene.index-1),travel=Math.min(1,local/scene.move);
@@ -161,18 +171,18 @@ export function cameraFrameSvg(doc,elapsed,{aspect=1.6,width=1280,height=Math.ro
   const board=timelineSvg(doc,{layout,progress:state.progress,maxVisibleIndex:state.revealed,showGhost:false});
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${camera.x} ${camera.y} ${camera.width} ${camera.height}"><rect x="${camera.x}" y="${camera.y}" width="${camera.width}" height="${camera.height}" fill="${PAPER}"/>${board}</svg>`;
 }
-export function drawVideoFrame(ctx,layout,assets,elapsed){
-  const {width,height}=ctx.canvas,state=cameraState(layout,elapsed,width/height),camera=state.camera;
+export function drawVideoFrame(ctx,layout,assets,elapsed,schedule){
+  const {width,height}=ctx.canvas,state=cameraState(layout,elapsed,width/height,schedule),camera=state.camera;
   const scale=width/camera.width;
   const design=outputDesign(layout.design),{ink:INK,line:RED,paper:PAPER,cards:COLORS}=design;
   ctx.fillStyle=PAPER;ctx.fillRect(0,0,width,height);ctx.save();ctx.scale(scale,scale);ctx.translate(-camera.x,-camera.y);
   // A clean, card-free board is cached once. Only reached events are drawn as individual cached cards.
   ctx.drawImage(assets.base,0,0,layout.width,layout.height);
-  const trace=traceGeometry(layout,state.progress);
-  if(trace.visible.length){
+  const {visible}=tracePoints(layout.points,state.progress),tip=visible.at(-1);
+  if(tip&&design.opacity){
     const zeroY=layout.box.y+10/(10-layout.low)*layout.box.height;ctx.save();ctx.globalAlpha=design.opacity;ctx.fillStyle=RED;ctx.beginPath();
-    trace.visible.forEach((point,i)=>i?ctx.lineTo(point.x,point.y):ctx.moveTo(point.x,point.y));
-    ctx.lineTo(trace.tip.x,zeroY);ctx.lineTo(trace.visible[0].x,zeroY);ctx.fill();ctx.restore();
+    visible.forEach((point,i)=>i?ctx.lineTo(point.x,point.y):ctx.moveTo(point.x,point.y));
+    ctx.lineTo(tip.x,zeroY);ctx.lineTo(visible[0].x,zeroY);ctx.fill();ctx.restore();
   }
   for(let i=0;i<=state.revealed;i++){
     const bubble=layout.bubbles[i],image=assets.cards[i];if(!bubble||!image)continue;
@@ -180,51 +190,170 @@ export function drawVideoFrame(ctx,layout,assets,elapsed){
     ctx.beginPath();bubble.connector.forEach((point,j)=>j?ctx.lineTo(point.x,point.y):ctx.moveTo(point.x,point.y));ctx.strokeStyle=design.edge;ctx.lineWidth=1.7;ctx.stroke();
   }
   ctx.beginPath();
-  for(const [i,point]of trace.visible.entries()){if(!i)ctx.moveTo(point.x,point.y);else ctx.lineTo(point.x,point.y);}
+  for(const [i,point]of visible.entries()){if(!i)ctx.moveTo(point.x,point.y);else ctx.lineTo(point.x,point.y);}
   ctx.strokeStyle=RED;ctx.lineWidth=6.5;ctx.lineCap='round';ctx.lineJoin='round';if(!design.down)ctx.stroke();
-  if(design.down) for(let i=1;i<trace.visible.length;i++){
-    const previous=trace.visible[i-1], point=trace.visible[i];
+  if(design.down) for(let i=1;i<visible.length;i++){
+    const previous=visible[i-1], point=visible[i];
     ctx.beginPath();ctx.moveTo(previous.x,previous.y);ctx.lineTo(point.x,point.y);
     ctx.strokeStyle=segmentColor(design,previous,point);ctx.stroke();
   }
-  if(trace.tip){ctx.beginPath();ctx.arc(trace.tip.x,trace.tip.y,7,0,Math.PI*2);ctx.fillStyle=RED;ctx.fill();}
+  if(tip){ctx.beginPath();ctx.arc(tip.x,tip.y,7,0,Math.PI*2);ctx.fillStyle=RED;ctx.fill();}
   for(let i=0;i<=state.revealed;i++){
     const point=layout.points[i];if(!point)continue;
     ctx.beginPath();ctx.arc(point.x,point.y,9,0,Math.PI*2);ctx.fillStyle=COLORS[i%COLORS.length];ctx.fill();ctx.strokeStyle=INK;ctx.lineWidth=3;ctx.stroke();
   }
   ctx.restore();return state;
 }
+// ===== SECTION: Video encoding with explicit frame timestamps =====
+const VIDEO_FPS=24;
+const VIDEO_BITRATE=5_000_000;
+const videoError='動画の作成に失敗しました。画像保存をお試しください。';
+const interruptedRecording='動画の描画が一時停止したため、作成を中断しました。この画面を表示したまま、もう一度お試しください。';
+const videoAbort=()=>new DOMException('動画作成を中止しました。','AbortError');
+function checkVideoAbort(signal){if(signal?.aborted)throw videoAbort();}
+
+export async function writeVideoFrames(duration,writeFrame,onProgress,signal){
+  const count=Math.ceil(duration*VIDEO_FPS/1000);
+  for(let index=0;index<count;index++){
+    checkVideoAbort(signal);
+    const timestamp=index/VIDEO_FPS;
+    await writeFrame(timestamp,1/VIDEO_FPS);
+    if((index+1)%12===0){
+      onProgress((index+1)/count);
+      // Allow the dialog, progress bar and cancel action to update even on a fast encoder.
+      await new Promise(resolve=>setTimeout(resolve,0));
+    }
+  }
+  checkVideoAbort(signal);
+  return count;
+}
+
+async function prepareTimedVideo(canvas){
+  if(!canUseWebCodecs())return null;
+  const {BufferTarget,CanvasSource,Mp4OutputFormat,Output,Quality,WebMOutputFormat,canEncodeVideo}=await import('./vendor/mediabunny.js');
+  const quality=new Quality({bitrate:VIDEO_BITRATE});
+  const settings={width:canvas.width,height:canvas.height,frameRate:VIDEO_FPS,quality,latencyMode:'quality'};
+  for(const codec of ['avc','vp8']){
+    if(!await canEncodeVideo(codec,settings))continue;
+    const isMp4=codec==='avc',mime=isMp4?'video/mp4':'video/webm';
+    const target=new BufferTarget();
+    const output=new Output({format:isMp4?new Mp4OutputFormat():new WebMOutputFormat(),target});
+    let encoded=0;
+    const source=new CanvasSource(canvas,{codec,quality,latencyMode:settings.latencyMode,onEncodedPacket:()=>encoded++});
+    output.addVideoTrack(source,{frameRate:VIDEO_FPS});
+    return {output,target,source,mime,encodedCount:()=>encoded};
+  }
+  return null;
+}
+
+async function encodeTimedVideo(prepared,draw,duration,onProgress,signal){
+  const {output,target,source,mime,encodedCount}=prepared;
+  const cancel=()=>{void output.cancel().catch(()=>{});};
+  signal?.addEventListener('abort',cancel,{once:true});
+  try{
+    checkVideoAbort(signal);
+    await output.start();
+    const count=await writeVideoFrames(duration,(timestamp,frameDuration)=>{
+      draw(timestamp*1000);
+      return source.add(timestamp,frameDuration);
+    },onProgress,signal);
+    await output.finalize();
+    checkVideoAbort(signal);
+    if(encodedCount()!==count||!target.buffer?.byteLength)throw new Error(videoError);
+    onProgress(1);
+    return new Blob([target.buffer],{type:mime});
+  }catch(error){
+    if(output.state!=='finalized')await output.cancel().catch(()=>{});
+    checkVideoAbort(signal);
+    throw new Error(videoError,{cause:error});
+  }finally{
+    signal?.removeEventListener('abort',cancel);
+  }
+}
+
+// ponytail: MediaRecorder uses wall-clock timestamps. Browsers without WebCodecs
+// must keep the tab visible and reject stalled recordings instead of saving damaged files.
+function recordVideo(canvas,mime,draw,duration,onProgress,signal){
+  checkVideoAbort(signal);
+  if(document.hidden)throw new Error(interruptedRecording);
+  draw(0);
+  const stream=canvas.captureStream(VIDEO_FPS),chunks=[];
+  const stopTracks=()=>stream.getTracks().forEach(track=>track.stop());
+  return new Promise((resolve,reject)=>{
+    let recorder,raf=0,finished=false;
+    const abort=()=>fail(videoAbort());
+    const visibilityChanged=()=>{if(document.hidden)fail(new Error(interruptedRecording));};
+    const cleanup=()=>{
+      cancelAnimationFrame(raf);
+      stopTracks();
+      signal?.removeEventListener('abort',abort);
+      document.removeEventListener('visibilitychange',visibilityChanged);
+    };
+    const fail=error=>{
+      if(finished)return;
+      finished=true;
+      cleanup();
+      if(recorder&&recorder.state!=='inactive'){
+        try{recorder.stop();}catch{}
+      }
+      reject(error);
+    };
+    try{
+      recorder=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:VIDEO_BITRATE});
+      recorder.ondataavailable=event=>{if(event.data.size)chunks.push(event.data);};
+      recorder.onerror=()=>fail(new Error(videoError));
+      recorder.onstop=()=>{
+        if(finished)return;
+        if(!chunks.length){fail(new Error(videoError));return;}
+        finished=true;
+        cleanup();
+        resolve(new Blob(chunks,{type:recorder.mimeType}));
+      };
+      signal?.addEventListener('abort',abort,{once:true});
+      document.addEventListener('visibilitychange',visibilityChanged);
+      recorder.start(250);
+      const start=performance.now();
+      let previous=start;
+      const frame=()=>{
+        const now=performance.now(),elapsed=now-start;
+        if(document.hidden||now-previous>250){fail(new Error(interruptedRecording));return;}
+        previous=now;
+        try{
+          draw(elapsed);
+          onProgress(Math.min(1,elapsed/duration));
+          if(elapsed<duration)raf=requestAnimationFrame(frame);
+          else if(performance.now()-now>250)fail(new Error(interruptedRecording));
+          else recorder.stop();
+        }catch(error){fail(new Error(videoError,{cause:error}));}
+      };
+      raf=requestAnimationFrame(frame);
+    }catch(error){fail(new Error(videoError,{cause:error}));}
+  });
+}
+
 export async function createVideo(doc,onProgress,signal){
-  const mime=videoMime();if(!mime)throw new Error('このブラウザは動画の作成に対応していません。PNGまたはSVGで保存してください。');
+  if(!videoSupport())throw new Error('このブラウザは動画の作成に対応していません。PNGまたはSVGで保存してください。');
+  checkVideoAbort(signal);
   const layout=timelineLayout(doc),spec=layoutSpecs[doc.layout];
   if(!videoAssetPlan(layout).allowed)throw new Error('この年表は動画生成用の画像が大きすぎます。記録はそのままです。PNGまたはSVGで保存するか、節目・文章を減らしてお試しください。');
   const base=await svgToCanvas(timelineSvg(doc,{layout,showLine:false,maxVisibleIndex:-1,showGhost:false}),{maxDimension:4096,maxPixels:7000000});
   const cards=[];
   for(const bubble of layout.bubbles){
-    if(signal?.aborted)throw new DOMException('動画作成を中止しました。','AbortError');
+    checkVideoAbort(signal);
     const svg=timelineSvg(doc,{layout,showLine:false,maxVisibleIndex:bubble.index,showGhost:false});
     // Extract using the unique group boundary rather than keeping a full board image per event.
     const at=svg.indexOf('data-event-index="'+bubble.index+'"'),groupStart=svg.lastIndexOf('<g ',at),groupEnd=svg.indexOf('</g>',at)+4;
     const fragment=svg.slice(groupStart,groupEnd),x=bubble.x-23,y=bubble.y-27,w=bubble.width+49,h=bubble.height+33;
     cards.push(await svgToCanvas(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="${x} ${y} ${w} ${h}" font-family="${outputDesign(doc.design).font}" fill="${outputDesign(doc.design).ink}">${fragment}</svg>`,{maxDimension:4096,maxPixels:3000000}));
   }
-  if(signal?.aborted)throw new DOMException('動画作成を中止しました。','AbortError');
+  checkVideoAbort(signal);
   const canvas=document.createElement('canvas');canvas.width=spec.width;canvas.height=spec.height;
-  const ctx=canvas.getContext('2d');if(!ctx)throw new Error('動画用の画像を作成できませんでした。');
-  const assets={base,cards};drawVideoFrame(ctx,layout,assets,0);
-  const stream=canvas.captureStream(24),chunks=[];let recorder;
-  try{recorder=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:5000000});}catch(error){stream.getTracks().forEach(track=>track.stop());throw error;}
-  let raf=0;const {duration}=cameraSchedule(layout);
-  return new Promise((resolve,reject)=>{
-    let aborted=false;
-    const abort=()=>{aborted=true;if(recorder.state!=='inactive')recorder.stop();};
-    signal?.addEventListener('abort',abort,{once:true});
-    const cleanup=()=>{cancelAnimationFrame(raf);stream.getTracks().forEach(track=>track.stop());signal?.removeEventListener('abort',abort);};
-    recorder.ondataavailable=event=>{if(event.data.size)chunks.push(event.data);};
-    recorder.onerror=()=>{cleanup();reject(new Error('動画の作成に失敗しました。画像保存をお試しください。'));};
-    recorder.onstop=()=>{cleanup();if(aborted)reject(new DOMException('動画作成を中止しました。','AbortError'));else resolve(new Blob(chunks,{type:recorder.mimeType}));};
-    recorder.start(250);const start=performance.now();
-    const frame=now=>{const elapsed=now-start,state=drawVideoFrame(ctx,layout,assets,elapsed);onProgress(Math.min(1,elapsed/duration));if(!state.complete)raf=requestAnimationFrame(frame);else recorder.stop();};
-    raf=requestAnimationFrame(frame);
-  });
+  const ctx=canvas.getContext('2d',{alpha:false});if(!ctx)throw new Error('動画用の画像を作成できませんでした。');
+  const assets={base,cards},schedule=cameraSchedule(layout);
+  const draw=elapsed=>drawVideoFrame(ctx,layout,assets,elapsed,schedule);
+  const timed=await prepareTimedVideo(canvas);
+  if(timed)return encodeTimedVideo(timed,draw,schedule.duration,onProgress,signal);
+  const mime=mediaRecorderMime();
+  if(!mime)throw new Error('このブラウザで動画を作成できません。PNGまたはSVGで保存してください。');
+  return recordVideo(canvas,mime,draw,schedule.duration,onProgress,signal);
 }

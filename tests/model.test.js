@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {BIRTH_ANCHOR_ID,NORMAL_EVENT_LIMIT,MAX_EVENTS,AGE_GUIDE_WARNING,emptyDocument,event,validateDocument,parseDocument,guideEvents,appendGuide,chartGeometry,sortedEvents,escapeXml,cleanText,timelineLayout,wrapText,rasterPlan,playbackPosition,playbackTime,documentHeading,periodLabel,removeEvents,restoreEvents,layoutSpecs} from '../model.js';
-import {exportSvg,timelineSvg,traceGeometry,drawVideoFrame,cameraState,cameraSchedule,cameraFrameSvg,videoAssetPlan,xImageLayout} from '../export.js';
+import {exportSvg,timelineSvg,traceGeometry,drawVideoFrame,cameraState,cameraSchedule,cameraFrameSvg,videoAssetPlan,xImageLayout,writeVideoFrames} from '../export.js';
 
 test('JSON backups round-trip Unicode and negative scores without mutation',()=>{
   const doc={...emptyDocument(),name:'はるか 🏔',events:[event(25,'転機','ひと休み',-10,'気持ちを整えた。\n次の一歩へ。')]};
@@ -224,6 +224,24 @@ test('video prepares bounded cached assets and uses the same camera transform as
 test('preview playback still retains its final hold independently of camera video duration',()=>{
   assert.equal(playbackPosition(6,.5).index,2);assert.equal(playbackPosition(0,1).index,-1);
   const {duration}=playbackTime(2,0);assert.equal(playbackTime(2,duration-1200).progress,1);assert.equal(playbackTime(2,duration-1).complete,false);assert.equal(playbackTime(2,duration).complete,true);
+});
+
+test('video keeps 24 fps and visits every frame when writing pauses',async()=>{
+  const frames=[];
+  const count=await writeVideoFrames(1040,async(timestamp,duration)=>{
+    if(frames.length===1)await new Promise(resolve=>setTimeout(resolve,50));
+    frames.push({timestamp,duration});
+  },()=>{});
+  assert.equal(count,25);
+  assert.deepEqual(frames,Array.from({length:25},(_,index)=>({timestamp:index/24,duration:1/24})));
+
+  const controller=new AbortController();
+  let writes=0;
+  await assert.rejects(writeVideoFrames(1040,()=>{
+    writes++;
+    controller.abort();
+  },()=>{},controller.signal),{name:'AbortError'});
+  assert.equal(writes,1);
 });
 
 test('legacy age-zero records migrate to editable birth without losing data, and cards omit number and score badges',()=>{

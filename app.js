@@ -1,5 +1,5 @@
 import {BIRTH_ANCHOR_ID,MIN_SCORE,timelineEvents,NORMAL_EVENT_LIMIT,AGE_GUIDE_WARNING,STORAGE_KEY,emptyDocument,sampleDocument,event,sortedEvents,parseDocument,guideEvents,appendGuide,escapeXml,cleanText,timelineLayout,rasterPlan,playbackPosition,playbackTime,documentHeading,periodLabel,removeEvents,restoreEvents} from './model.js';
-import {timelineSvg,traceGeometry,traceSegments,exportSvg,exportXImage,svgToCanvas,canvasBlob,videoMime,createVideo,cameraSchedule} from './export.js';
+import {timelineSvg,traceGeometry,traceSegments,exportSvg,exportXImage,svgToCanvas,canvasBlob,videoSupport,createVideo,cameraSchedule} from './export.js';
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)], esc=escapeXml;
 let doc=emptyDocument(),sample=sampleDocument(),showingSample=true,selectedId=null,guide='turning',toastTimer,undo=null;
 let playRaf=0,playStart=0,playElapsed=0,playing=false,playProgress=1;
@@ -362,7 +362,7 @@ $('#video-open').onclick=()=>{
     videoBlob=null;videoUrl=null;
     $('#video-result').removeAttribute('src');$('#video-result').hidden=true;$('#video-save').hidden=true;
   }
-  const mime=videoMime(),duration=Math.ceil(cameraSchedule(timelineLayout(currentDoc())).duration/1000);$('#video-duration').textContent=`約${duration}秒。コメントの長さに合わせて各節目で停止します。`; $('#video-support').textContent=mime?`このブラウザで作成する形式：${mime.includes('mp4')?'MP4':'WebM'}。${showingSample?'現在はサンプルの年表です。':''}`:'このブラウザでは動画作成に対応していません。PNGまたはSVGで保存できます。';$('#video-create').disabled=!mime;$('#video-dialog').showModal();};
+  const format=videoSupport(),duration=Math.ceil(cameraSchedule(timelineLayout(currentDoc())).duration/1000);$('#video-duration').textContent=`約${duration}秒。コメントの長さに合わせて各節目で停止します。`; $('#video-support').textContent=format?`保存形式：${format}。${showingSample?'現在はサンプルの年表です。':''}`:'このブラウザでは動画作成に対応していません。PNGまたはSVGで保存できます。';$('#video-create').disabled=!format;$('#video-dialog').showModal();};
 $('#video-create').onclick=async()=>{
   const snapshot=structuredClone(currentDoc());$('#video-create').disabled=true;$('#video-create').textContent='動画を作成しています…';$('#video-progress').hidden=false;$('#video-progress').value=0;$('#video-save').hidden=true;
   const controller=new AbortController();
@@ -372,7 +372,7 @@ $('#video-create').onclick=async()=>{
     if(controller.signal.aborted||videoController!==controller)return;
     if(videoUrl)URL.revokeObjectURL(videoUrl);videoKey=JSON.stringify(snapshot);videoBlob=blob;videoUrl=URL.createObjectURL(blob);$('#video-result').src=videoUrl;$('#video-result').hidden=false;$('#video-save').hidden=false;toast('動画を作成しました。');
   }catch(e){if(e.name!=='AbortError')toast(e.message);}
-  finally{if(videoController===controller){videoController=null;$('#video-create').disabled=!videoMime();$('#video-create').textContent='動画を作成する';$('#video-progress').hidden=true;}}
+  finally{if(videoController===controller){videoController=null;$('#video-create').disabled=!videoSupport();$('#video-create').textContent='動画を作成する';$('#video-progress').hidden=true;}}
 };
 $('#video-save').onclick=()=>{if(videoBlob)download(videoBlob,filename(videoBlob.type.includes('mp4')?'mp4':'webm'));};
 $('#video-dialog').addEventListener('close',()=>{videoController?.abort();$('#video-result').pause();});

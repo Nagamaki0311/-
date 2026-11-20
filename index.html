@@ -5,12 +5,23 @@
 <meta name="theme-color" content="#1b2940"><meta name="description" content="出来事、コメント、気分の折れ線を一枚の年表に。データは端末内で保存し、画像や動画として書き出せます。">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'none'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>人生年表メーカー</title>
+<meta property="og:type" content="website">
+<meta property="og:title" content="人生年表メーカー">
+<meta property="og:description" content="出来事、コメント、気分の折れ線を一枚の年表に。">
+<meta property="og:image" content="https://jinsei-yama-tani-maker.sprightlyferret32.chatgpt.site/share-card.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="右上に伸びる折れ線のロゴと「人生年表メーカー」">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://jinsei-yama-tani-maker.sprightlyferret32.chatgpt.site/share-card.png">
+<meta name="twitter:image:alt" content="右上に伸びる折れ線のロゴと「人生年表メーカー」">
 <link rel="icon" href="favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="styles.css">
 <script type="module" src="app.js"></script>
 </head>
 <body>
 <a class="skip" href="#workspace">編集へ</a>
-<header class="header"><a class="brand" href="./" aria-label="人生年表メーカー ホーム"><span class="brand-mark" aria-hidden="true">↗</span><span>人生年表<span class="brand-light">メーカー</span></span></a><div class="header-right"><button class="help-button" id="help-open" aria-label="使い方" title="使い方" aria-controls="help-dialog"><span class="help-mark" aria-hidden="true">?</span></button></div></header>
+<header class="header"><a class="brand" href="./" aria-label="人生年表メーカー ホーム"><img class="brand-mark" src="favicon.svg" width="32" height="32" alt=""><span>人生年表<span class="brand-light">メーカー</span></span></a><div class="header-right"><button class="help-button" id="help-open" aria-label="使い方" title="使い方" aria-controls="help-dialog"><span class="help-mark" aria-hidden="true">?</span></button></div></header>
 <main>
 <div class="mobile-tabs" role="group" aria-label="表示の切り替え"><button id="tab-edit" class="active" aria-pressed="true">✎ 入力する</button><button id="tab-preview" aria-pressed="false">↗ 年表を見る</button></div>
 <section class="workspace" id="workspace">

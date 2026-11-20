@@ -137,7 +137,7 @@ function updateBoardProgress(progress,activeId){
 function updateScoreOverlay(){
   const viewport=$('#board-viewport'),overlay=$('#score-overlay');
   const axisX=previewLayout?.box.x*boardZoom-16*boardZoom;
-  overlay.hidden=!previewLayout||viewport.scrollLeft+28<axisX;
+  overlay.hidden=!previewLayout||viewport.scrollLeft<=0||viewport.scrollLeft<axisX;
   if(!overlay.hidden){
     overlay.style.height=`${viewport.clientHeight}px`;
     overlay.firstElementChild.style.transform=`translateY(${-viewport.scrollTop}px)`;

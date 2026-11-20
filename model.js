@@ -5,23 +5,30 @@ export const NORMAL_EVENT_LIMIT = 30;
 export const MAX_EVENTS = 121;
 export const AGE_GUIDE_WARNING = '年齢ごとは30件を超えて追加できます。件数によっては正常に表示・出力できない場合があります。';
 export const BIRTH_ANCHOR_ID = 'fixed:birth';
+export const MIN_SCORE = -10;
+export const SCORE_TICKS = [10, 5, 0, -5, -10];
 export const STORAGE_KEY = 'jinsei-timeline-v1';
 export function uid() { return globalThis.crypto?.randomUUID?.() ?? `e-${Date.now()}-${Math.random().toString(36).slice(2)}`; }
 export function event(age = 0, label = '', title = '', score = 5, comment = '') {
   return { id: uid(), age, label, title, score, comment };
 }
 export function emptyDocument() {
-  return { version: VERSION, name: '', title: 'わたしの人生年表', layout: 'wide', design: 'A', negative: false, events: [] };
+  return { version: VERSION, name: '', title: 'わたしの人生年表', layout: 'wide', design: 'A', birth: defaultBirth(), events: [] };
 }
 export function sampleDocument() {
-  return { ...emptyDocument(), name: 'サンプル', title: 'わたしの人生年表', events: [
-    event(0, '誕生', '誕生', 7, '家族と過ごす。'),
+  return { ...emptyDocument(), name: 'サンプル', title: 'わたしの人生年表', birth: {...defaultBirth(), comment:'家族と過ごす。'}, events: [
     event(6, '小学校1年生', '小学校に入学', 8, '友人ができ、学校生活に慣れた。'),
     event(13, '中学校2年生', '部活動で悩む', 3, '練習と勉強の両立が難しかった。'),
     event(18, '大学1年生', '大学に進学', 9, '一人暮らしを始め、新しい友人もできた。'),
     event(22, '社会人1年目', '就職', 4, '初めての仕事に慣れるまで時間がかかった。'),
     event(27, '転職', '希望する職種に転職', 10, '仕事の選択肢が増え、生活も落ち着いた。')
   ] };
+}
+function defaultBirth() {
+  return {id:BIRTH_ANCHOR_ID, age:0, label:'誕生', title:'', comment:'', score:0};
+}
+export function timelineEvents(doc) {
+  return [doc.birth, ...sortedEvents(doc.events)];
 }
 export function sortedEvents(events) { return events.map((e,i)=>({e,i})).sort((a,b)=>a.e.age-b.e.age || a.i-b.i).map(x=>x.e); }
 const invalidXml = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uD800-\uDFFF\uFFFE\uFFFF]/u;
@@ -33,7 +40,7 @@ function string(value, max, field) {
 export function validateDocument(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input) || input.version !== VERSION) throw new Error('対応していないデータ形式です。バージョン1の年表JSONを選んでください。');
   if (!Array.isArray(input.events) || input.events.length > MAX_EVENTS) throw new Error(`節目は${MAX_EVENTS}件までです。`);
-  if (!['wide','square','portrait'].includes(input.layout) || typeof input.negative !== 'boolean') throw new Error('表示設定の形式が正しくありません。');
+  if (!['wide','square','portrait'].includes(input.layout)) throw new Error('表示設定の形式が正しくありません。');
   const design = input.design === undefined ? 'A' : input.design;
   if (!DESIGN_IDS.includes(design)) throw new Error('出力デザインはA〜Eから選んでください。');
   const ids = new Set();
@@ -44,7 +51,21 @@ export function validateDocument(input) {
     ids.add(id);
     return { id, age:e.age, label:string(e.label,40,'区分'), title:string(e.title,80,'できごと'), comment:string(e.comment,300,'コメント'), score:e.score };
   });
-  return {version:VERSION, name:string(input.name,40,'名前'), title:string(input.title,80,'タイトル'), layout:input.layout, design, negative:input.negative, events};
+  const result = {version:VERSION, name:string(input.name,40,'名前'), title:string(input.title,80,'タイトル'), layout:input.layout, design, events};
+  if (input.birth !== undefined) {
+    const birth = input.birth;
+    if (!birth || birth.id !== BIRTH_ANCHOR_ID || birth.age !== 0 ||
+        !Number.isInteger(birth.score) || birth.score < MIN_SCORE || birth.score > 10) {
+      throw new Error('誕生の節目の形式が正しくありません。');
+    }
+    result.birth = {id:BIRTH_ANCHOR_ID, age:0, label:string(birth.label,40,'区分'),
+      title:string(birth.title,80,'できごと'), comment:string(birth.comment,300,'コメント'), score:birth.score};
+  } else {
+    // Version 1 used the first age-zero record as the birth milestone.
+    const index = events.findIndex(record => record.age === 0);
+    result.birth = index >= 0 ? {...events.splice(index,1)[0], id:BIRTH_ANCHOR_ID} : defaultBirth();
+  }
+  return result;
 }
 export function parseDocument(text) {
   if (typeof text !== 'string' || text.length > 250000) throw new Error('ファイルが大きすぎます（250KBまで）。');
@@ -79,7 +100,7 @@ export function appendGuide(doc, generated, { mode = 'turning' } = {}) {
 }
 export function chartGeometry(events, box={x:70,y:45,width:910,height:280}) {
   const list = sortedEvents(events);
-  const low = list.some(e=>e.score<0) ? -10 : 0;
+  const low = MIN_SCORE;
   const minAge = Math.min(0,...list.map(e=>e.age));
   const maxAge = Math.max(1,...list.map(e=>e.age));
   return {list, low, minAge, maxAge, points:list.map(e=>({ ...e, x:box.x+(e.age-minAge)/(maxAge-minAge)*box.width, y:box.y+(10-e.score)/(10-low)*box.height })), box};
@@ -90,7 +111,11 @@ export const layoutSpecs = {
   square: {width:1200,height:1200,ratio:1,label:'正方形'},
   portrait: {width:1080,height:1600,ratio:0.675,label:'縦長'}
 };
-export function periodLabel(record){return `${record.age}歳${record.label&&record.label.trim()!==record.age+'歳'?' / '+record.label:''}`;}
+export function periodLabel(record, fixedBirth = false) {
+  const label = record.label.trim();
+  if (fixedBirth) return '0歳 / 誕生' + (label && label !== '誕生' && label !== '0歳' ? ' / ' + label : '');
+  return `${record.age}歳${label&&label!==record.age+'歳'?' / '+record.label:''}`;
+}
 export function documentHeading(doc) { const name=cleanText(doc.name||'').trim();return name?name+'の人生年表':'わたしの人生年表'; }
 // Legacy version-1 title is retained in JSON backups, but no longer drives displayed headings.
 export function removeEvents(doc, ids) {
@@ -120,26 +145,15 @@ export function wrapText(text, maxUnits) {
   return lines;
 }
 function eventCard(record,index,cardWidth) {
-  const periodLines=wrapText(periodLabel(record),(cardWidth-44)/16);
+  const periodLines=wrapText(periodLabel(record,index===0),(cardWidth-44)/16);
   const titleLines=record.title?wrapText(record.title,(cardWidth-40)/21):[];
   const commentLines=record.comment?wrapText(record.comment,(cardWidth-40)/18):[];
   const height=24+periodLines.length*24+(titleLines.length?14+titleLines.length*30:0)+(commentLines.length?12+commentLines.length*26:0)+20;
   return {...record,index,width:cardWidth,height,periodLines,titleLines,commentLines};
 }
 export function timelineLayout(doc) {
-  const list=sortedEvents(doc.events),pad=64,cardWidth=280,cardGap=24,plotHeight=560;
-  // The fixed origin is derived for display. It never consumes a slot or changes saved records.
-  if(list[0]?.age!==0)list.unshift({id:BIRTH_ANCHOR_ID,age:0,label:'誕生',title:'',comment:'',score:5});
-  const cards=list.map((record,index)=>{
-    const card=eventCard(record,index,cardWidth);
-    if(index===0&&record.label.trim()!=='誕生'){
-      const label=record.label.trim();
-      card.periodLines=wrapText('0歳 / 誕生'+(label&&label!=='0歳'?' / '+label:''),(cardWidth-44)/16);
-      const extraLines=card.periodLines.length-wrapText(periodLabel(record),(cardWidth-44)/16).length;
-      card.height+=extraLines*24;
-    }
-    return card;
-  });
+  const list=timelineEvents(doc),pad=64,cardWidth=280,cardGap=24,plotHeight=560;
+  const cards=list.map((record,index)=>eventCard(record,index,cardWidth));
   const groups=[];
   for(const card of cards){
     let group=groups.at(-1);
@@ -163,7 +177,7 @@ export function timelineLayout(doc) {
   const inset=(width-naturalWidth)/2,firstX=pad+left+inset;
   const titleLines=wrapText(documentHeading(doc),(width-pad*2-64)/38),headerHeight=64+titleLines.length*50;
   const box={x:span&&groups.length?firstX:pad+60,y:headerHeight+40,width:span&&groups.length?span:width-pad*2-120,height:plotHeight};
-  const low=list.some(record=>record.score<0)?-10:0,points=[],bubbles=[];
+  const low=MIN_SCORE,points=[],bubbles=[];
   for(const group of groups){
     const x=span?firstX+group.offset:width/2;
     group.cards.forEach((card,slot)=>{

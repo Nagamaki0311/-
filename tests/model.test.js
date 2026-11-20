@@ -4,13 +4,13 @@ import {BIRTH_ANCHOR_ID,NORMAL_EVENT_LIMIT,MAX_EVENTS,AGE_GUIDE_WARNING,emptyDoc
 import {exportSvg,timelineSvg,traceGeometry,drawVideoFrame,cameraState,cameraSchedule,cameraFrameSvg,videoAssetPlan} from '../export.js';
 
 test('JSON backups round-trip Unicode and negative scores without mutation',()=>{
-  const doc={...emptyDocument(),name:'はるか 🏔',negative:false,events:[event(25,'転機','ひと休み',-10,'気持ちを整えた。\n次の一歩へ。')]};
+  const doc={...emptyDocument(),name:'はるか 🏔',events:[event(25,'転機','ひと休み',-10,'気持ちを整えた。\n次の一歩へ。')]};
   const restored=parseDocument(JSON.stringify(doc));
   assert.deepEqual(restored,doc);restored.events[0].title='変更';assert.notEqual(restored.events[0].title,doc.events[0].title);
 });
 test('untrusted JSON rejects wrong versions, values, identities, and oversized input',()=>{
   const doc={...emptyDocument(),events:[event()]};
-  for(const invalid of [null,[],{...doc,version:2},{...doc,layout:'huge'},{...doc,events:[{...doc.events[0],age:1.5}]},{...doc,events:[{...doc.events[0],age:121}]},{...doc,events:[{...doc.events[0],score:-11}]},{...doc,events:[{...doc.events[0],title:'x'.repeat(81)}]},{...doc,events:[doc.events[0],doc.events[0]]},{...doc,events:[{...doc.events[0],id:'a\rb'}]},{...doc,title:'a\0b'},{...doc,title:'\ud800'},{...doc,negative:'true'}]) assert.throws(()=>validateDocument(invalid));
+  for(const invalid of [null,[],{...doc,version:2},{...doc,layout:'huge'},{...doc,events:[{...doc.events[0],age:1.5}]},{...doc,events:[{...doc.events[0],age:121}]},{...doc,events:[{...doc.events[0],score:-11}]},{...doc,events:[{...doc.events[0],title:'x'.repeat(81)}]},{...doc,events:[doc.events[0],doc.events[0]]},{...doc,events:[{...doc.events[0],id:'a\rb'}]},{...doc,title:'a\0b'},{...doc,title:'\ud800'},{...doc,birth:{...doc.birth,score:-11}},{...doc,birth:{...doc.birth,age:1}},{...doc,birth:{...doc.birth,id:'other'}}]) assert.throws(()=>validateDocument(invalid));
   assert.throws(()=>parseDocument('{invalid}'));assert.throws(()=>parseDocument('x'.repeat(250001)));
   assert.equal(doc.events.length,1);
 });
@@ -30,7 +30,7 @@ test('guide append preserves existing entries and skips only same age/label pair
   assert.throws(()=>guideEvents('school',20,200));
   assert.throws(()=>guideEvents('school',20.5));assert.throws(()=>guideEvents('other',20));
 });
-test('chart uses actual ages and stable ties; negative values expand y axis',()=>{
+test('chart uses actual ages and stable ties; fixed −10 to 10 y axis',()=>{
   const a=event(30,'','late',10),b=event(10,'','first',0),c=event(10,'','second',-10);
   const g=chartGeometry([a,b,c],{x:0,y:0,width:300,height:200});
   assert.deepEqual(g.list.map(e=>e.title),['first','second','late']);
@@ -56,7 +56,7 @@ function segmentEntersRect(a,b,rect){
 }
 function assertBoardGeometry(doc){
   const board=timelineLayout(doc);
-  const displayCount=doc.events.length+(doc.events.some(e=>e.age===0)?0:1);
+  const displayCount=doc.events.length+1;
   assert.equal(board.bubbles.length,displayCount);assert.equal(board.points.length,displayCount);
   for(const b of board.bubbles){
     assert.ok(b.x>=0&&b.y>=0&&b.x+b.width<=board.width&&b.y+b.height<=board.height,'full bubble must be within board');
@@ -73,22 +73,22 @@ function assertBoardGeometry(doc){
 
 test('all image formats preserve a single readable panorama, even with 121 age events',()=>{
   for(const amount of [0,1,6,30,121]){
-    const doc={...emptyDocument(),events:Array.from({length:amount},(_,i)=>event(i,`${i}歳`,`出来事${i}`,i%11,'コメントを残します。'))};
+    const doc={...emptyDocument(),events:Array.from({length:amount},(_,i)=>event(Math.min(120,i+1),`${Math.min(120,i+1)}歳`,`出来事${i}`,i%11,'コメントを残します。'))};
     const board=assertBoardGeometry(doc),svg=exportSvg(doc);
     for(const value of [board.width,board.height,board.box.x,board.box.y,board.box.width,board.box.height])assert.ok(Number.isFinite(value)&&value>0,'empty and populated board dimensions must be finite and positive');
     assert.equal(board.rows.length,1);assert.equal(board.folded,false);assert.equal(board.panorama,true);
     assert.equal((svg.match(/data-panorama-axis=/g)||[]).length,1);
     assert.doesNotMatch(svg,/次の段へ|data-timeline-row|NaN|Infinity/);
-    assert.equal((svg.match(/data-kind="bubble"/g)||[]).length,Math.max(1,amount));
+    assert.equal((svg.match(/data-kind="bubble"/g)||[]).length,amount+1);
     assert.ok(board.box.height>=560,'the fixed score range has enough vertical room to show rises and falls');
-    for(let i=1;i<board.points.length;i++)assert.ok(board.points[i].x-board.points[i-1].x>=343.9,'normal yearly points must have readable separation');
+    for(let i=1;i<board.points.length;i++)if(board.points[i].age>board.points[i-1].age)assert.ok(board.points[i].x-board.points[i-1].x>=343.9,'normal yearly points must have readable separation');
     for(const bubble of board.bubbles){assert.equal(bubble.titleLines.join(''),bubble.title);assert.equal(bubble.commentLines.join(''),bubble.comment);}
     if(amount)assert.equal((traceGeometry(board,1).path.match(/M/g)||[]).length,1);
     for(const layout of ['square','portrait'])assert.deepEqual(timelineLayout({...doc,layout}),board,'video aspect choices must not alter image layout');
   }
 });
 test('age gaps of three years or more are marked and shortened on one linear score axis',()=>{
-  const doc={...emptyDocument(),events:[event(0,'誕生'),event(1,'','one',-10),event(3,'','three',0),event(6,'','six',10),event(60,'','last',5)]};
+  const doc={...emptyDocument(),events:[event(1,'','one',-10),event(3,'','three',0),event(6,'','six',10),event(60,'','last',5)]};
   const board=assertBoardGeometry(doc),svg=exportSvg(doc);
   const [birth,one,three,six,last]=board.points;
   assert.deepEqual(board.breaks.map(({from,to})=>[from,to]),[[3,6],[6,60]]);
@@ -125,7 +125,7 @@ test('normal additions stop at 30 and the age guide can add all 120 editable yea
   assert.throws(()=>appendGuide(restored,[event(100)],{mode:'manual'}),/30/);
   assert.throws(()=>validateDocument({...legacy,events:Array.from({length:122},()=>event())}),/121/);
 });
-test('new and fully deleted documents retain a fixed display-only birth origin',()=>{
+test('new and fully deleted documents retain a fixed editable birth origin',()=>{
   const before={...emptyDocument(),events:[event(0)]};
   for(const doc of [emptyDocument(),removeEvents(before,[before.events[0].id]).document]){
     const board=timelineLayout(doc),svg=exportSvg(doc),state=cameraState(board,0);
@@ -133,7 +133,7 @@ test('new and fully deleted documents retain a fixed display-only birth origin',
     for(const number of [state.camera.x,state.camera.y,state.camera.width,state.camera.height])assert.ok(Number.isFinite(number));
     assert.equal(state.index,0);assert.equal(state.revealed,0);assert.doesNotMatch(cameraFrameSvg(doc,0),/NaN|Infinity/);
     assert.equal(board.points[0].id,BIRTH_ANCHOR_ID);
-    assert.equal(board.points[0].age,0);assert.match(svg,/0歳 \/ 誕生/);
+    assert.equal(board.points[0].age,0);assert.equal(board.points[0].score,0);assert.equal(board.low,-10);assert.match(svg,/0歳 \/ 誕生/);
     assert.equal(doc.events.length,0);
   }
 });
@@ -181,8 +181,8 @@ test('bulk delete and undo preserve records, original order and intervening addi
   assert.throws(()=>restoreEvents({...doc,events:Array.from({length:121},()=>event())},result.removed));
 });
 test('interactive board exposes point and card controls, while export stays noninteractive',()=>{
-  const doc={...emptyDocument(),events:[event(0),event(20)]},svg=timelineSvg(doc,{interactive:true,selectedId:doc.events[0].id});
-  assert.match(svg,/role="group"/);assert.equal((svg.match(/role="button"/g)||[]).length,4);assert.equal((svg.match(/aria-pressed="true"/g)||[]).length,2);
+  const doc={...emptyDocument(),events:[event(0),event(20)]},svg=timelineSvg(doc,{interactive:true,selectedId:doc.birth.id});
+  assert.match(svg,/role="group"/);assert.equal((svg.match(/role="button"/g)||[]).length,6);assert.equal((svg.match(/aria-pressed="true"/g)||[]).length,2);
   assert.match(exportSvg(doc),/role="img"/);assert.doesNotMatch(exportSvg(doc),/role="button"/);
 });
 test('PNG rasterization bounds memory without cropping the whole one-canvas export',()=>{
@@ -208,7 +208,7 @@ test('same-age camera holds remain readable and very long comments pan to their 
     const doc={...emptyDocument(),layout,events:Array.from({length:100},(_,i)=>event(10,'','出来事'+i,5,'コメント'))},board=timelineLayout(doc),scene=cameraSchedule(board).scenes[0];
     const state=cameraState(board,scene.move+scene.hold*.5,layoutSpecs[layout].ratio);assert.ok(18*layoutSpecs[layout].width/state.camera.width>=18);
   }
-  const doc={...emptyDocument(),events:[event(0,'','長文',5,'あ\n'.repeat(140))]},board=timelineLayout(doc),scene=cameraSchedule(board).scenes[0];
+  const doc={...emptyDocument(),birth:{...emptyDocument().birth,title:'長文',score:5,comment:'あ\n'.repeat(140)}},board=timelineLayout(doc),scene=cameraSchedule(board).scenes[0];
   const start=cameraState(board,scene.move+scene.hold*.2),end=cameraState(board,scene.end);
   assert.ok(end.camera.y>start.camera.y);assert.ok(end.camera.y+end.camera.height>=board.bubbles[0].y+board.bubbles[0].height);
 });
@@ -226,12 +226,16 @@ test('preview playback still retains its final hold independently of camera vide
   const {duration}=playbackTime(2,0);assert.equal(playbackTime(2,duration-1200).progress,1);assert.equal(playbackTime(2,duration-1).complete,false);assert.equal(playbackTime(2,duration).complete,true);
 });
 
-test('adding guides reuses an existing age-zero record and cards omit number and score badges',()=>{
+test('legacy age-zero records migrate to editable birth without losing data, and cards omit number and score badges',()=>{
   const legacy=event(0,'乳児期','生まれた',4,'実際の記録');
-  const doc={...emptyDocument(),events:[legacy]};
+  const old={...emptyDocument(),events:[legacy,event(0,'別の記録')],negative:false};
+  delete old.birth;
+  const doc=parseDocument(JSON.stringify(old));
+  assert.deepEqual(doc.birth,{...legacy,id:BIRTH_ANCHOR_ID});
+  assert.equal(doc.events[0].id,old.events[1].id);
   const next=appendGuide(doc,guideEvents('age',2),{mode:'age'});
   assert.equal(next.events.length,3);
-  assert.equal(next.events[0],legacy);
+  assert.equal(next.birth,doc.birth);
   const svg=exportSvg(next);
   const card=svg.match(/<g [^>]*data-kind="bubble"[^>]*>[\s\S]*?<\/g>/)[0];
   assert.match(card,/0歳 \/ 誕生 \/ 乳児期/);
@@ -273,4 +277,16 @@ test('five design palettes apply to image exports and video frame previews',()=>
       if(design==='E')for(const color of ['#55df9a','#ff7d86'])assert.ok(svg.includes(`stroke="${color}"`));
     }
   }
+});
+
+test('birth edits persist, stay fixed through deletion, and do not use an ordinary event slot',()=>{
+  const edited={...emptyDocument(),birth:{...emptyDocument().birth,title:'出生',comment:'家族の記録',score:-10}};
+  let doc=edited;
+  for(let i=0;i<NORMAL_EVENT_LIMIT;i++)doc=appendGuide(doc,[event(0,'別の記録')],{mode:'manual'});
+  assert.equal(timelineLayout(doc).points[0].id,BIRTH_ANCHOR_ID);
+  const deleted=removeEvents(doc,[BIRTH_ANCHOR_ID,...doc.events.map(record=>record.id)]).document;
+  assert.equal(deleted.events.length,0);
+  const restored=parseDocument(JSON.stringify(deleted));
+  assert.deepEqual(restored.birth,edited.birth);
+  assert.match(exportSvg(restored),/家族の記録/);
 });

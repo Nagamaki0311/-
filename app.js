@@ -1,4 +1,4 @@
-import {BIRTH_ANCHOR_ID,NORMAL_EVENT_LIMIT,AGE_GUIDE_WARNING,STORAGE_KEY,emptyDocument,sampleDocument,event,sortedEvents,parseDocument,guideEvents,appendGuide,escapeXml,cleanText,timelineLayout,rasterPlan,playbackPosition,playbackTime,documentHeading,periodLabel,removeEvents,restoreEvents} from './model.js';
+import {BIRTH_ANCHOR_ID,MIN_SCORE,SCORE_TICKS,timelineEvents,NORMAL_EVENT_LIMIT,AGE_GUIDE_WARNING,STORAGE_KEY,emptyDocument,sampleDocument,event,sortedEvents,parseDocument,guideEvents,appendGuide,escapeXml,cleanText,timelineLayout,rasterPlan,playbackPosition,playbackTime,documentHeading,periodLabel,removeEvents,restoreEvents} from './model.js';
 import {timelineSvg,traceGeometry,traceSegments,exportSvg,svgToCanvas,canvasBlob,videoMime,createVideo,cameraSchedule} from './export.js';
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)], esc=escapeXml;
 let doc=emptyDocument(),sample=sampleDocument(),showingSample=true,selectedId=null,guide='turning',toastTimer,undo=null;
@@ -27,16 +27,26 @@ function setMobileView(view){document.body.dataset.mobileView=view;$('#tab-edit'
 $('#tab-edit').onclick=()=>setMobileView('edit');$('#tab-preview').onclick=()=>setMobileView('preview');
 // ===== SECTION: Editor and guides =====
 function renderEditor(){
-  $('#name').value=doc.name;$('#negative').checked=doc.negative;
+  $('#name').value=doc.name;
   checkedIds=new Set([...checkedIds].filter(id=>doc.events.some(e=>e.id===id)));
   $('#sample-notice').hidden=!showingSample;$('#event-count').textContent=doc.events.length;
   $$('#sample-badge').forEach(e=>e.hidden=!showingSample);
-  const list=sortedEvents(doc.events);
+  const list=timelineEvents(doc);
   if(selectedId&&!list.some(e=>e.id===selectedId)&&!showingSample)selectedId=null;
-  $('#event-list').innerHTML=list.length?list.map((e,i)=>{
+  $('#event-list').innerHTML=list.map((e,i)=>{
     const open=e.id===selectedId;
-    return `<article class="event-item${open?' selected':''}" data-id="${esc(e.id)}"><div class="event-row"><label class="event-select-label"><input class="event-select" type="checkbox" aria-label="節目${i+1}を選択" ${checkedIds.has(e.id)?'checked':''}><span class="visually-hidden">選択</span></label><button class="event-toggle" aria-expanded="${open}" aria-controls="event-${i}"><span class="event-index">${String(i+1).padStart(2,'0')}</span><span class="event-toggle-body"><small>${esc(periodLabel(e))}</small><b>${esc(e.title||'未入力')}</b></span><span class="event-score">${e.score}</span><span class="chevron" aria-hidden="true">${open?'−':'＋'}</span></button></div><div class="event-fields" id="event-${i}" ${open?'':'hidden'}><div class="event-two-fields"><label>年齢<input type="number" data-field="age" min="0" max="120" step="1" required value="${e.age}" aria-label="節目${i+1}の年齢"></label><label>区分・時期<input data-field="label" maxlength="40" value="${esc(e.label)}" placeholder="例：高校3年生"></label></div><label>できごと<input data-field="title" maxlength="80" value="${esc(e.title)}" placeholder="例：はじめての一人暮らし"></label><label>コメント <textarea data-field="comment" maxlength="300" rows="2" placeholder="コメントを入力">${esc(e.comment)}</textarea></label><div><div class="score-label"><label for="score-${i}">人生の調子</label><output id="score-output-${i}">${e.score}</output></div><input id="score-${i}" type="range" data-field="score" min="${doc.negative||e.score<0?-10:0}" max="10" step="1" value="${e.score}" aria-describedby="score-output-${i}"><div class="range-ends"><span>${doc.negative||e.score<0?'−10 低い':'0 低い'}</span><span>10 高い</span></div></div><button class="delete-event" type="button">この節目を削除</button></div></article>`;
-  }).join(''):'<div class="empty-state"><p>ガイドか「できごとを追加」から始めてください。</p></div>';
+    const fixed=e.id===BIRTH_ANCHOR_ID;
+    const selection=fixed?'':`<label class="event-select-label"><input class="event-select" type="checkbox" aria-label="節目${i}を選択" ${checkedIds.has(e.id)?'checked':''}><span class="visually-hidden">選択</span></label>`;
+    const timing=fixed?'':`<div class="event-two-fields"><label>年齢<input type="number" data-field="age" min="0" max="120" step="1" required value="${e.age}" aria-label="節目${i}の年齢"></label><label>区分・時期<input data-field="label" maxlength="40" value="${esc(e.label)}" placeholder="例：高校3年生"></label></div>`;
+    const remove=fixed?'':'<button class="delete-event" type="button">この節目を削除</button>';
+    return `<article class="event-item${open?' selected':''}" data-id="${esc(e.id)}">
+      <div class="event-row">${selection}<button class="event-toggle" aria-expanded="${open}" aria-controls="event-${i}"><span class="event-index">${fixed?'':String(i).padStart(2,'0')}</span><span class="event-toggle-body"><small>${esc(periodLabel(e,fixed))}</small><b>${esc(e.title||'未入力')}</b></span><span class="event-score">${e.score}</span><span class="chevron" aria-hidden="true">${open?'−':'＋'}</span></button></div>
+      <div class="event-fields" id="event-${i}" ${open?'':'hidden'}>${timing}
+        <label>できごと<input data-field="title" maxlength="80" value="${esc(e.title)}" placeholder="例：はじめての一人暮らし"></label>
+        <label>コメント <textarea data-field="comment" maxlength="300" rows="2" placeholder="コメントを入力">${esc(e.comment)}</textarea></label>
+        <div><div class="score-label"><label for="score-${i}">人生の調子</label><output id="score-output-${i}">${e.score}</output></div><input id="score-${i}" type="range" data-field="score" min="${MIN_SCORE}" max="10" step="1" value="${e.score}" aria-describedby="score-output-${i}"><div class="range-ends"><span>−10 低い</span><span>10 高い</span></div></div>${remove}
+      </div></article>`;
+  }).join('');
   $('#add-event').disabled=doc.events.length>=NORMAL_EVENT_LIMIT;
   updateBulkControls();updateGuideNotice();
   $('#json-save').textContent=showingSample?'↓ サンプルの編集データを保存':'↓ 編集データを保存';
@@ -90,7 +100,7 @@ function deleteRecords(ids){
 function confirmBulkDelete(ids){
   if(!ids.length)return;pendingImport=null;pendingDeleteIds=[...ids];
   $('#confirm-title').textContent=`${ids.length}件の節目を削除しますか？`;
-  $('#confirm-message').textContent='選択した節目のできごと・コメント・スコアをまとめて削除します。削除後は「元に戻す」で取り消せます。';
+  $('#confirm-message').textContent='選択した節目をまとめて削除します。0歳／誕生は残ります。削除後は「元に戻す」で取り消せます。';
   $('#confirm-yes').textContent='削除する';$('#confirm-dialog').showModal();
 }
 $('#bulk-select-all').onchange=e=>{checkedIds=e.target.checked?new Set(doc.events.map(record=>record.id)):new Set();renderEditor();};
@@ -99,19 +109,25 @@ $('#delete-all').onclick=()=>confirmBulkDelete(doc.events.map(record=>record.id)
 $('#event-list').addEventListener('change',e=>{if(!e.target.classList.contains('event-select'))return;const id=e.target.closest('.event-item').dataset.id;if(e.target.checked)checkedIds.add(id);else checkedIds.delete(id);updateBulkControls();});
 $('#event-list').addEventListener('input',e=>{
   const field=e.target.dataset.field;if(!field)return;
-  const item=e.target.closest('.event-item'),record=doc.events.find(x=>x.id===item.dataset.id);if(!record)return;
+  const item=e.target.closest('.event-item');
+  const fixed=item.dataset.id===BIRTH_ANCHOR_ID;
+  const record=fixed?doc.birth:doc.events.find(x=>x.id===item.dataset.id);
+  if(!record)return;
+  if(showingSample){
+    ensureOwn();
+    selectedId=record.id;
+  }
   if(field==='age'||field==='score'){
     if(!e.target.validity.valid||e.target.value==='')return;
     record[field]=Number(e.target.value);
   }else record[field]=cleanText(e.target.value);
-  item.querySelector('.event-toggle-body small').textContent=periodLabel(record);
+  item.querySelector('.event-toggle-body small').textContent=periodLabel(record,fixed);
   item.querySelector('.event-toggle-body b').textContent=record.title||'未入力';
   item.querySelector('.event-score').textContent=record.score;
   item.querySelector('output').value=record.score;
   stopPlayback(true);commit();
 });
 $('#event-list').addEventListener('change',e=>{if(e.target.dataset.field==='age'){if(e.target.value===''||!e.target.validity.valid){const record=doc.events.find(x=>x.id===e.target.closest('.event-item').dataset.id);e.target.value=record?.age??0;toast('年齢は0〜120の整数で入力してください。元の年齢を保持しました。');return;}renderEditor();}});
-$('#negative').onchange=e=>{ensureOwn();doc.negative=e.target.checked;persist();renderEditor();renderPreview();};
 $$('[data-layout]').forEach(b=>b.onclick=()=>{if(showingSample)sample.layout=b.dataset.layout;else{doc.layout=b.dataset.layout;persist();}updateLayoutButtons();renderPreview();});
 // ===== SECTION: Preview and playback =====
 function activePreviewId(list){
@@ -146,7 +162,7 @@ function updateScoreOverlay(){
 function renderScoreOverlay(){
   const overlay=$('#score-overlay');
   const track=document.createElement('div');
-  const ticks=previewLayout.low<0?[10,5,0,-5,-10]:[10,8,6,4,2,0];
+  const ticks=SCORE_TICKS;
   for(const value of ticks){
     const tick=document.createElement('span');
     tick.textContent=value;
@@ -168,7 +184,7 @@ function applyZoom(preserveCenter=true){
 }
 let jumpEventsKey='';
 function renderPreview(){
-  const d=currentDoc(),key=JSON.stringify(d),list=sortedEvents(d.events);
+  const d=currentDoc(),key=JSON.stringify(d);
   if(key!==previewKey)previewLayout=timelineLayout(d);
   const active=activePreviewId(previewLayout.points);
   $('#sample-badge').hidden=!showingSample;
@@ -179,7 +195,7 @@ function renderPreview(){
     }
     $('#chart').innerHTML=timelineSvg(d,{layout:previewLayout,selectedId:active,progress:playProgress,interactive:true});
     const jump=$('#milestone-jump');
-    const eventsKey=JSON.stringify(d.events);
+    const eventsKey=JSON.stringify([d.birth,d.events]);
     if(jumpEventsKey!==eventsKey){
       const previous=jump.value;
       jump.replaceChildren(new Option('節目を選択',''));
@@ -189,9 +205,9 @@ function renderPreview(){
       jump.value=[...jump.options].some(option=>option.value===previous)?previous:'';
       jumpEventsKey=eventsKey;
     }
-    highlightedId=active;$('#board-summary').textContent=`${list.length}件 / ${previewLayout.width}×${previewLayout.height}px`;applyZoom(false);
+    highlightedId=active;$('#board-summary').textContent=`${previewLayout.points.length}件 / ${previewLayout.width}×${previewLayout.height}px`;applyZoom(false);
   }
-  updateBoardProgress(playProgress,active);$('#play').disabled=!list.length;
+  updateBoardProgress(playProgress,active);
 }
 for(const button of $$('[data-output-design]')){
   button.onclick=()=>{
@@ -215,7 +231,7 @@ $('#milestone-jump').onchange=e=>{
   revealEvent(e.target.value);
 };
 function selectPoint(target){
-  const point=target.closest('[data-event-id]');if(!point||point.dataset.eventId===BIRTH_ANCHOR_ID)return;
+  const point=target.closest('[data-event-id]');if(!point)return;
   const keepFocus=point.contains(document.activeElement),kind=point.dataset.kind;
   stopPlayback(true);selectedId=point.dataset.eventId;if(!showingSample)renderEditor();renderPreview();
   if(keepFocus)[...$('#chart').querySelectorAll('[data-event-id]')].find(el=>el.dataset.eventId===selectedId&&el.dataset.kind===kind)?.focus({preventScroll:true});
@@ -231,7 +247,6 @@ function stopPlayback(reset=false){cancelAnimationFrame(playRaf);playing=false;$
 function frame(now){playElapsed=now-playStart;const state=playbackTime(previewLayout.points.length,playElapsed);playProgress=state.progress;updateBoardProgress(playProgress,previewLayout?.points[playbackPosition(previewLayout.points.length,playProgress).index]?.id||'');if(!state.complete){playRaf=requestAnimationFrame(frame);}else{selectedId=previewLayout?.points.at(-1)?.id||null;stopPlayback();playElapsed=0;$('#play-label').textContent='再生が終了しました';$('#play-hint').textContent='';}}
 $('#play').onclick=()=>{
   if(playing){stopPlayback();$('#play-label').textContent='一時停止';return;}
-  if(!currentDoc().events.length)return;
   playing=true;playStart=performance.now()-playElapsed;$('#play').textContent='Ⅱ';$('#play').setAttribute('aria-label','再生を一時停止');$('#play-label').textContent='再生中';$('#play-hint').textContent='点を選ぶと停止します。';playRaf=requestAnimationFrame(frame);
 };
 $('#reset-play').onclick=()=>{stopPlayback(true);renderPreview();};
@@ -241,7 +256,7 @@ $('#json-open').onclick=()=>$('#json-file').click();
 let pendingImport=null;
 $('#json-file').onchange=async e=>{
   const file=e.target.files[0];e.target.value='';if(!file)return;
-  try{if(file.size>250000)throw new Error('ファイルが大きすぎます（250KBまで）。');pendingImport=parseDocument(await file.text());pendingDeleteIds=[];$('#confirm-yes').textContent='読み込む';$('#confirm-title').textContent='年表データを読み込みますか？';$('#confirm-message').textContent=`${pendingImport.events.length}件の節目を読み込みます。現在の年表は置き換わります。必要なら先に「編集データを保存」でバックアップしてください。`;$('#confirm-dialog').showModal();}
+  try{if(file.size>250000)throw new Error('ファイルが大きすぎます（250KBまで）。');pendingImport=parseDocument(await file.text());pendingDeleteIds=[];$('#confirm-yes').textContent='読み込む';$('#confirm-title').textContent='年表データを読み込みますか？';$('#confirm-message').textContent=`${pendingImport.events.length+1}件の節目を読み込みます。現在の年表は置き換わります。必要なら先に「編集データを保存」でバックアップしてください。`;$('#confirm-dialog').showModal();}
   catch(error){pendingImport=null;toast(error.message);}
 };
 $('#confirm-yes').onclick=()=>{if(pendingDeleteIds.length){const ids=[...pendingDeleteIds];pendingDeleteIds=[];$('#confirm-dialog').close();deleteRecords(ids);return;}if(!pendingImport)return;ensureOwn();stopPlayback(true);doc=pendingImport;pendingImport=null;selectedId=null;undo=null;checkedIds.clear();persist();renderEditor();renderPreview();$('#confirm-dialog').close();toast('年表を読み込みました。');};
@@ -319,7 +334,6 @@ $('#video-open').onclick=()=>{
   }
   const mime=videoMime(),duration=Math.ceil(cameraSchedule(timelineLayout(currentDoc())).duration/1000);$('#video-duration').textContent=`約${duration}秒。コメントの長さに合わせて各節目で停止します。`; $('#video-support').textContent=mime?`このブラウザで作成する形式：${mime.includes('mp4')?'MP4':'WebM'}。${showingSample?'現在はサンプルの年表です。':''}`:'このブラウザでは動画作成に対応していません。PNGまたはSVGで保存できます。';$('#video-create').disabled=!mime;$('#video-dialog').showModal();};
 $('#video-create').onclick=async()=>{
-  if(!currentDoc().events.length){toast('動画にする節目を、ひとつ以上追加してください。');return;}
   const snapshot=structuredClone(currentDoc());$('#video-create').disabled=true;$('#video-create').textContent='動画を作成しています…';$('#video-progress').hidden=false;$('#video-progress').value=0;$('#video-save').hidden=true;
   const controller=new AbortController();
   videoController=controller;

@@ -1,4 +1,4 @@
-import {BIRTH_ANCHOR_ID,escapeXml as esc,layoutSpecs,timelineLayout,rasterPlan,playbackPosition,playbackTime} from './model.js';
+import {SCORE_TICKS,escapeXml as esc,layoutSpecs,timelineLayout,rasterPlan,playbackPosition,playbackTime} from './model.js';
 const sans = 'system-ui, sans-serif';
 const serif = 'Noto Serif CJK JP, Hiragino Mincho ProN, Yu Mincho, serif';
 const designs = {
@@ -38,7 +38,7 @@ export function traceGeometry(layout,progress=1) {
 export function timelineSvg(doc,{layout=timelineLayout(doc),interactive=false,selectedId='',progress=1,showLine=true,maxVisibleIndex=Infinity,showGhost=true}={}) {
   const {width,height,pad,points,bubbles,low,box,minAge,maxAge}=layout,trace=traceGeometry(layout,progress);
   const design=outputDesign(doc.design), {ink:INK,line:RED,paper:PAPER,cards:COLORS}=design;
-  const ticks=low<0?[10,5,0,-5,-10]:[10,8,6,4,2,0];
+  const ticks=SCORE_TICKS;
   const ages=new Map(points.map(point=>[point.age,point.x]));
   const gapY=box.y+box.height+29;
   const gapMarkers=layout.breaks.map(({x,from,to})=>`<g data-age-break="" role="img" aria-label="${from}歳から${to}歳までの間隔を短縮"><rect x="${x-20}" y="${gapY-15}" width="40" height="22" fill="${PAPER}"/><path d="M${x-12} ${gapY+5}l9 -18m5 18l9 -18" stroke="${INK}" stroke-width="3"/></g>`).join('');
@@ -49,13 +49,13 @@ export function timelineSvg(doc,{layout=timelineLayout(doc),interactive=false,se
     const color=COLORS[b.index%COLORS.length],active=b.id===selectedId;
     const periodY=b.y+31,periodBottom=periodY+(b.periodLines.length-1)*24,titleY=periodBottom+36,commentY=b.titleLines.length?titleY+(b.titleLines.length-1)*30+38:periodBottom+32;
     const label=`節目${b.index+1} ${b.age}歳 ${b.label} ${b.title} スコア${b.score}${b.comment?' '+b.comment:''}`;
-    return `<g class="timeline-event${active?' is-selected':''}" data-event-id="${esc(b.id)}" data-event-index="${b.index}" data-kind="bubble" ${interactive&&b.id!==BIRTH_ANCHOR_ID?`tabindex="0" role="button" aria-pressed="${active}" aria-label="${esc(label)}"`:''}>${design.shadow?`<rect x="${b.x+5}" y="${b.y+6}" width="${b.width}" height="${b.height}" rx="${design.radius}" fill="${INK}"/>`:''}<rect class="bubble-outline" x="${b.x}" y="${b.y}" width="${b.width}" height="${b.height}" rx="${design.radius}" fill="${color}" data-border="${design.edge}" data-active-border="${RED}" stroke="${active?RED:design.edge}" stroke-width="${active?4:2}"/>${textLines(b.periodLines,b.x+20,periodY,16,{weight:700,lineHeight:24})}${b.titleLines.length?textLines(b.titleLines,b.x+20,titleY,21,{weight:700,lineHeight:30}):''}${b.commentLines.length?textLines(b.commentLines,b.x+20,commentY,18,{fill:design.muted,lineHeight:26}):''}</g>`;
+    return `<g class="timeline-event${active?' is-selected':''}" data-event-id="${esc(b.id)}" data-event-index="${b.index}" data-kind="bubble" ${interactive?`tabindex="0" role="button" aria-pressed="${active}" aria-label="${esc(label)}"`:''}>${design.shadow?`<rect x="${b.x+5}" y="${b.y+6}" width="${b.width}" height="${b.height}" rx="${design.radius}" fill="${INK}"/>`:''}<rect class="bubble-outline" x="${b.x}" y="${b.y}" width="${b.width}" height="${b.height}" rx="${design.radius}" fill="${color}" data-border="${design.edge}" data-active-border="${RED}" stroke="${active?RED:design.edge}" stroke-width="${active?4:2}"/>${textLines(b.periodLines,b.x+20,periodY,16,{weight:700,lineHeight:24})}${b.titleLines.length?textLines(b.titleLines,b.x+20,titleY,21,{weight:700,lineHeight:30}):''}${b.commentLines.length?textLines(b.commentLines,b.x+20,commentY,18,{fill:design.muted,lineHeight:26}):''}</g>`;
   }).join('');
   const seen=new Set();
   const marks=points.filter((point,index)=>index<=maxVisibleIndex).map((point,index)=>{
     const key=`${point.x}:${point.y}`,duplicate=seen.has(key);seen.add(key);
     const score=`${point.score>0?'+':''}${point.score}${point.coincident>1?' · '+point.coincident+'件':''}`;
-    return `<g class="timeline-point${point.id===selectedId?' is-selected':''}" data-event-id="${esc(point.id)}" data-kind="point" ${interactive&&point.id!==BIRTH_ANCHOR_ID?`tabindex="0" role="button" aria-pressed="${point.id===selectedId}" aria-label="節目${index+1}、${point.age}歳、${esc(point.title||point.label||'未入力')}、スコア${point.score}"`:''}><circle cx="${point.x}" cy="${point.y}" r="22" fill="${INK}" fill-opacity="0"/><circle class="point-core" cx="${point.x}" cy="${point.y}" r="9" fill="${COLORS[index%COLORS.length]}" stroke="${INK}" stroke-width="3"/>${duplicate||point.id===BIRTH_ANCHOR_ID?'':`<text x="${point.x+15}" y="${point.y-16}" font-size="22" font-weight="700" fill="${INK}" stroke="${PAPER}" stroke-width="5" paint-order="stroke">${esc(score)}</text>`}</g>`;
+    return `<g class="timeline-point${point.id===selectedId?' is-selected':''}" data-event-id="${esc(point.id)}" data-kind="point" ${interactive?`tabindex="0" role="button" aria-pressed="${point.id===selectedId}" aria-label="節目${index+1}、${point.age}歳、${esc(point.title||point.label||'未入力')}、スコア${point.score}"`:''}><circle cx="${point.x}" cy="${point.y}" r="22" fill="${INK}" fill-opacity="0"/><circle class="point-core" cx="${point.x}" cy="${point.y}" r="9" fill="${COLORS[index%COLORS.length]}" stroke="${INK}" stroke-width="3"/>${duplicate?'':`<text x="${point.x+15}" y="${point.y-16}" font-size="22" font-weight="700" fill="${INK}" stroke="${PAPER}" stroke-width="5" paint-order="stroke">${esc(score)}</text>`}</g>`;
   }).join('');
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="${interactive?'group':'img'}" aria-label="時期、出来事、コメントと折れ線が左から右につながる人生年表" font-family="${design.font}" fill="${INK}" data-design="${esc(doc.design||'A')}"><rect width="${width}" height="${height}" rx="8" fill="${PAPER}"/>${design.shadow?`<rect x="12" y="12" width="${width-24}" height="${height-24}" rx="6" fill="none" stroke="${INK}" stroke-width="3"/>`:''}${textLines(layout.titleLines,pad,66,38,{weight:design.weight,lineHeight:50})}${axes}${showGhost?`<path data-ghost-trace="" d="${traceGeometry(layout,1).path}" stroke="${RED}" stroke-width="6.5" opacity=".1" fill="none"/>`:''}<path data-area="" d="${showLine?trace.area:''}" fill="${RED}" opacity="${design.opacity}"/>${connectors}<path data-trace="" d="${showLine&&!design.down?trace.path:''}" stroke="${RED}" stroke-width="6.5" stroke-linejoin="round" stroke-linecap="round" fill="none"/><g data-trace-segments="">${showLine?traceSegments(trace.visible,doc.design):''}</g>${marks}${showLine&&trace.tip?`<circle data-trace-tip="" cx="${trace.tip.x}" cy="${trace.tip.y}" r="8" fill="${RED}" pointer-events="none"/>`:'<circle data-trace-tip="" cx="0" cy="0" r="0" fill="'+RED+'" pointer-events="none"/>'}${cards}${!points.length?textLines(['節目を追加すると年表が表示されます。'],pad,box.y+80,24,{fill:design.muted}):''}</svg>`;
 }
@@ -161,7 +161,7 @@ export function drawVideoFrame(ctx,layout,assets,elapsed){
     const point=layout.points[i];if(!point)continue;
     const key=`${point.x}:${point.y}`,duplicate=seen.has(key);seen.add(key);
     ctx.beginPath();ctx.arc(point.x,point.y,9,0,Math.PI*2);ctx.fillStyle=COLORS[i%COLORS.length];ctx.fill();ctx.strokeStyle=INK;ctx.lineWidth=3;ctx.stroke();
-    if(!duplicate&&point.id!==BIRTH_ANCHOR_ID){const label=`${point.score>0?'+':''}${point.score}${point.coincident>1?' · '+point.coincident+'件':''}`;ctx.font=`700 22px ${design.font}`;ctx.strokeStyle=PAPER;ctx.lineWidth=5;ctx.strokeText(label,point.x+15,point.y-16);ctx.fillStyle=INK;ctx.fillText(label,point.x+15,point.y-16);}
+    if(!duplicate){const label=`${point.score>0?'+':''}${point.score}${point.coincident>1?' · '+point.coincident+'件':''}`;ctx.font=`700 22px ${design.font}`;ctx.strokeStyle=PAPER;ctx.lineWidth=5;ctx.strokeText(label,point.x+15,point.y-16);ctx.fillStyle=INK;ctx.fillText(label,point.x+15,point.y-16);}
   }
   ctx.restore();return state;
 }

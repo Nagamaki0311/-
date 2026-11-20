@@ -293,13 +293,44 @@ $('#png-save').onclick=()=>{
   toast('PNG画像を保存しました。');
 };
 $('#svg-save').onclick=()=>{download(new Blob([exportSvg(exportDoc)],{type:'image/svg+xml'}),filename('svg'));toast('SVG画像を保存しました。');};
-$('#share').onclick=async()=>{
-  try{
-    if(!pngBlob)return;
-    const file=new File([pngBlob],filename('png'),{type:'image/png'});
-    if(navigator.canShare?.({files:[file]})&&navigator.share){await navigator.share({files:[file],title:documentHeading(exportDoc)});toast('共有画面に画像を渡しました。');}
-    else{download(pngBlob,file.name);toast('この端末は直接共有に非対応です。保存した画像をSNSに添付してください。');}
-  }catch(e){if(e.name!=='AbortError')toast('共有できませんでした。「PNGで保存」から画像を保存してSNSに添付してください。');}
+const shareCaption = [
+  '人生年表メーカー',
+  '人生の出来事と気分の変化を、一枚の年表に。',
+  'https://jinsei-yama-tani-maker.nk-pr.com/'
+].join('\n');
+const captionField = $('#share-caption-text');
+captionField.value = shareCaption;
+
+$('#copy-share-caption').onclick = async () => {
+  try {
+    await navigator.clipboard.writeText(shareCaption);
+    toast('紹介文とリンクをコピーしました。');
+  } catch {
+    $('#share-caption').open = true;
+    captionField.focus();
+    captionField.select();
+    toast('選択した投稿文をコピーしてください。');
+  }
+};
+
+$('#share').onclick = async () => {
+  if (!pngBlob) return;
+  const file = new File([pngBlob], filename('png'), {type: 'image/png'});
+  // Keep the URL in the caption so the receiving app gets one copy of it.
+  const payload = {files: [file], title: '人生年表メーカー', text: shareCaption};
+  try {
+    if (navigator.share && navigator.canShare?.(payload)) {
+      await navigator.share(payload);
+      toast('共有画面に画像と投稿文を渡しました。');
+    } else {
+      download(pngBlob, file.name);
+      toast('PNGを保存しました。投稿文をコピーし、画像を添付してください。');
+    }
+  } catch (error) {
+    if (error.name !== 'AbortError') {
+      toast('共有できませんでした。PNGを保存し、投稿文をコピーしてください。');
+    }
+  }
 };
 // ===== SECTION: Video creation and cleanup =====
 $('#video-open').onclick=()=>{
